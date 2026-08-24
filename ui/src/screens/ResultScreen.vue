@@ -13,6 +13,17 @@ function fmt(value, decimals) {
   return Number(value || 0).toFixed(decimals);
 }
 
+/*
+  Connection-setup timings are routinely sub-millisecond against a nearby
+  server, and rounding those to a whole number prints "0 ms" - which reads as
+  "not measured", right next to rows that were dropped for being exactly that.
+  One decimal below 10ms keeps a real reading distinguishable from a missing one.
+*/
+function fmtTiming(value) {
+  const v = Number(value || 0);
+  return v < 10 ? v.toFixed(1) : v.toFixed(0);
+}
+
 /* usedServer, not selectedServer: see state/test.js - Start may fire before
    server selection has settled, and the result must name the server the
    numbers actually came from. */
@@ -100,7 +111,7 @@ const timings = computed(() =>
       </div>
       <div v-for="row in timings" :key="row.key" class="detail">
         <dt class="label">{{ row.key }}</dt>
-        <dd>{{ fmt(row.value, 0) }} {{ t("unit.ms") }}</dd>
+        <dd>{{ fmtTiming(row.value) }} {{ t("unit.ms") }}</dd>
       </div>
     </dl>
 
