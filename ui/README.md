@@ -71,3 +71,27 @@ Lao` and the Inter vietnamese subset would fix it at roughly 60-90 kB.
 - No component or e2e tests cover this UI yet - that is Phase 7.
 - `npm run lint` and `npm run format` still cover only the engine files at the
   repo root; the config predates this directory and does not understand SFCs.
+
+## Result collection
+
+Results are POSTed to the test server after every run and stored there, which
+is the whole point of the deployment: network operations cannot review numbers
+that only exist in one handset's localStorage. `settings.json` sets
+`telemetry_level: "full"`; the backend config is in
+`../docker/backend-go.settings.toml`.
+
+Two things this UI has to do that the engine does not do for you:
+
+- `url_telemetry` is rewritten to an absolute URL on the selected test server.
+  The engine's default is relative to the *page*, and `speedtest.js` rewrites
+  the four measurement URLs from the selected server but leaves this one alone.
+  Inside the super-app the page comes from the super-app, so results would be
+  POSTed there instead - silently, with no user-visible error.
+- `telemetry_extra` carries the context a number is useless without: network
+  type, UI locale, user agent, test server name. It deliberately does not carry
+  anything identifying the subscriber, because how to obtain the ISDN is still
+  unresolved (`docs/bridge.md`).
+
+The result screen shows the id the backend assigns, so a user can quote it and
+operations can pull up that exact run at
+`/results/json.php?id=<id>` or on `/stats.php`.

@@ -50,6 +50,9 @@ export default {
   "net.connection": "Kết nối",
   "net.unknown": "Không rõ",
 
+  "result.testId": "Mã kết quả",
+  "result.testIdHint": "Đưa mã này cho bộ phận vận hành mạng để tra đúng lần đo này",
+
   "result.summary":
     "Tải xuống {download} Mbps, tải lên {upload} Mbps, độ trễ {ping} mili giây",
 

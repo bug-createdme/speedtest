@@ -63,6 +63,9 @@ export default {
   "net.connection": "ການເຊື່ອມຕໍ່",
   "net.unknown": "ບໍ່ຮູ້",
 
+  "result.testId": "ລະຫັດຜົນ",
+  "result.testIdHint": "ແຈ້ງລະຫັດນີ້ໃຫ້ຝ່າຍປະຕິບັດການເຄືອຂ່າຍ ເພື່ອເອີ້ນເບິ່ງການທົດສອບຄັ້ງນີ້",
+
   "result.summary":
     "ດາວໂຫລດ {download} Mbps, ອັບໂຫລດ {upload} Mbps, ຄວາມຫນ່ວງ {ping} ມິນລິວິນາທີ",
 

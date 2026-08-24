@@ -56,6 +56,9 @@ export default {
   "net.connection": "Connection",
   "net.unknown": "Unknown",
 
+  "result.testId": "Result ID",
+  "result.testIdHint": "Quote this to network operations to pull up this exact run",
+
   "result.summary":
     "Download {download} Mbps, upload {upload} Mbps, ping {ping} milliseconds",
 

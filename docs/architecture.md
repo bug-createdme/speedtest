@@ -3,6 +3,18 @@
 Trạng thái: **Draft — bridge WindVane đã xác nhận với tài liệu chính thức; còn 2 mục mở ở phần "Việc cần bạn xác nhận"**
 Ngày: 2026-08-24
 
+> ## ⚠ Đính chính mục đích dự án — 2026-08-24
+>
+> Tài liệu này ban đầu được viết với giả định **"thử nghiệm nội bộ vài chục–vài trăm user"**. Giả định đó **sai** và đã dẫn tới ít nhất một quyết định kiến trúc sai (mục 4, xem phần đính chính ở đó).
+>
+> **Mục đích thật:** miniapp chạy trong super-app Unitel, dùng để **phòng ban vận hành mạng** kiểm tra chất lượng mạng đang phục vụ khách hàng — vai trò tương đương speedtest.net nhưng cho riêng hạ tầng Unitel.
+>
+> Ba hệ quả, áp dụng cho toàn bộ tài liệu:
+>
+> 1. **Dữ liệu kết quả là sản phẩm chính**, không phải tính năng phụ tuỳ chọn. Kết quả phải được thu thập về server, không được chỉ nằm trên máy người dùng. (mục 4 — đã sửa)
+> 2. **Loaded latency và packet loss là chỉ số bắt buộc**, không phải "nice to have". Với vận hành mạng, "ping bao nhiêu khi đang tải" trả lời câu hỏi *mạng có ổn không* tốt hơn con số băng thông. Hiện **chưa có** — xem [analysis-phase1.md](analysis-phase1.md) §14.
+> 3. **Bảo mật (Phase 9) phải lên sớm hơn**, vì sắp có dữ liệu định danh thuê bao chứ không chỉ số đo ẩn danh. Mục 7 dưới đây vẫn viết theo giả định cũ và cần đọc với lưu ý này.
+
 ## 0. Bối cảnh và giả định nền
 
 Từ câu trả lời của bạn ở vòng câu hỏi Phase 2:
@@ -13,7 +25,7 @@ Từ câu trả lời của bạn ở vòng câu hỏi Phase 2:
 | Nền tảng | Android + iOS (cho giai đoạn 2) |
 | Backend | Go |
 | Backend production host | **Chưa có** — xác nhận lại lần 2, chưa thể điền `server-list.json` (xem mục 5) |
-| Quy mô hiện tại | Thử nghiệm nội bộ (vài chục–vài trăm user) |
+| Quy mô hiện tại | ~~Thử nghiệm nội bộ (vài chục–vài trăm user)~~ — **sai, xem đính chính ở đầu tài liệu**: công cụ vận hành mạng, phát qua super-app |
 | Frontend framework | **Vue 3 + Vite** — xác nhận, chưa triển khai |
 | Mini-app bridge | **WindVane** — xác nhận. Nền tảng LaoApp/`MiniappSDK` **ngoài phạm vi**, không tích hợp |
 
@@ -107,11 +119,41 @@ Chạy **song song** PHP (đang có) và Go (mới) trong cùng `docker-compose`
 
 **✅ Đã verify (không còn là khuyến nghị lý thuyết):** vendor thành submodule tại `backend-go/` (commit `59cff12`, tag `v1.1.6-2-g59cff12`), build local qua `docker-compose.backend-go.yml`. Chạy `speedtest.js`/`speedtest_worker.js` thật (bản đã vá) qua trình duyệt, chế độ cross-origin/MPOT thật (`addTestPoint` + `selectServer`), full test download/upload/ping hoàn tất sạch, `HTTP version: 1.1` xác nhận qua curl. **Chưa** thêm entry vào `server-list.json` chính (cần hostname thật, xem mục 5) — hiện chỉ dùng để dev/test local.
 
-## 4. Control API — cố tình CHƯA xây
+## 4. Thu thập kết quả — ĐÃ BẬT (sửa lại quyết định cũ)
 
-Phase 1 (§21) có đề xuất một "Control API" động (`/servers`, `/session`, `/results`) cho kịch bản scale lớn. **Ở quy mô thử nghiệm nội bộ hiện tại, không xây cái này** — mô hình JSON tĩnh sẵn có (`server-list.json`, `settings.json`) đã đủ dùng và đã chứng minh chạy đúng (verify bằng Docker + Playwright ở phiên làm việc trước).
+> **Đính chính 2026-08-24.** Bản trước của mục này ghi "cố tình CHƯA xây" phần thu thập kết quả, dựa trên giả định dự án là *thử nghiệm nội bộ vài chục user*. Giả định đó **sai**. Mục đích thật: miniapp chạy trong super-app Unitel để **phòng ban vận hành mạng** kiểm tra chất lượng mạng đang phục vụ khách hàng. Với mục đích đó, dữ liệu kết quả **là sản phẩm chính**, không phải thứ phụ tuỳ chọn — nếu kết quả chỉ nằm trong `localStorage` của từng máy thì phòng vận hành không có gì để xem.
 
-Ngưỡng để quay lại xây Control API động: khi danh sách test-point cần thay đổi thường xuyên hơn tốc độ deploy lại, hoặc khi cần rate-limit/token theo từng phiên (Phase 9, quy mô public).
+Đã bật, không phải xây mới — `speedtest-go` có sẵn:
+
+| Endpoint | Dùng để |
+|---|---|
+| `POST /results/telemetry.php` | Client gửi kết quả sau mỗi lần đo |
+| `GET /stats.php` | Trang tra cứu cho phòng vận hành (có đăng nhập) |
+| `GET /results/json.php?id=<id>` | Đọc 1 kết quả dạng JSON |
+
+Cấu hình nằm ở [docker/backend-go.settings.toml](../docker/backend-go.settings.toml) trong repo này (không patch vào submodule), mount vào container qua [docker-compose.backend-go.yml](../docker-compose.backend-go.yml).
+
+### Ba điểm bắt buộc, đã xử lý
+
+1. **`url_telemetry` phải là URL tuyệt đối trỏ vào test server.** Mặc định của engine là đường dẫn *tương đối* `results/telemetry.php` ([speedtest_worker.js:71](../speedtest_worker.js:71)), và `speedtest.js` viết lại `url_dl`/`url_ul`/`url_ping`/`url_getIp` theo server đã chọn nhưng **cố tình bỏ qua cái này**. Trong miniapp, trang do super-app phục vụ ⇒ kết quả sẽ POST vào super-app, nơi không có endpoint đó, và **không có lỗi nào người dùng thấy được**. `ui/src/state/test.js` set lại giá trị này theo server đã chọn.
+
+2. **`statistics_password` không được để mặc định.** [backend-go/results/stats.go:54](../backend-go/results/stats.go:54): nếu giá trị vẫn là chuỗi `"PASSWORD"`, trang thống kê được phục vụ **không cần đăng nhập** — tức toàn bộ DB kết quả kèm IP và ISP ai cũng xem được. Compose file bắt buộc truyền qua biến môi trường `SPEEDTEST_STATISTICS_PASSWORD`, không nhận giá trị mặc định.
+
+3. **`database_type` không được để `"none"`.** Giá trị đó tắt cả việc ghi lẫn trang thống kê. Hiện dùng `bolt` (embedded, thuần Go — image build với `CGO_ENABLED=0` nên `sqlite` không chạy được). Chuyển sang `postgresql`/`mysql` khi cần truy vấn ngoài trang stats, hoặc khi có nhiều hơn một test server cùng ghi.
+
+### Hình dạng bản ghi
+
+Đã verify thật (đọc trực tiếp từ bolt DB sau một lần đo): tốc độ down/up, ping, jitter, IP, ISP, thời điểm, cộng với `telemetry_extra` chứa loại mạng, ngôn ngữ giao diện, user agent và tên test server.
+
+Lưu ý về hình dạng: engine bọc thêm một lớp, nên `extra` lưu xuống DB có dạng `{"server":"...","extra":"<chuỗi JSON của client>"}` — phải parse hai lần. Đây là hành vi của `speedtest.js`, không phải lỗi cấu hình.
+
+### Còn thiếu: định danh thuê bao
+
+**Chưa có ISDN/số thuê bao** — thứ phòng vận hành cần để nối một kết quả với một đường dây cụ thể. Chưa thêm vì cách lấy ISDN chưa xác nhận được (xem [bridge.md](bridge.md) — `wv.getAuthCode` không có trong tài liệu WindVane công khai). `telemetry_extra` là chỗ để cắm vào khi có câu trả lời từ đội super-app.
+
+### Control API động — vẫn chưa xây
+
+Phase 1 (§21) đề xuất thêm một Control API động (`/servers`, `/session`) cho kịch bản scale lớn. Phần đó **vẫn chưa cần**: `server-list.json` tĩnh đủ dùng khi số test point còn ít. Ngưỡng để quay lại: khi danh sách test point cần đổi thường xuyên hơn tốc độ deploy, hoặc khi cần rate-limit/token theo phiên (Phase 9).
 
 ## 5. Danh sách test point
 

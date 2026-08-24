@@ -4,11 +4,31 @@
 #
 # Usage:
 #   git submodule update --init backend-go   # first checkout only
-#   docker compose -f docker-compose.backend-go.yml up -d --build
+#   SPEEDTEST_STATISTICS_PASSWORD=<pick one> \
+#     docker compose -f docker-compose.backend-go.yml up -d --build
 #   docker compose -f docker-compose.backend-go.yml down
+#
+# Results land in a bolt database on the speedtest-results volume and are
+# readable at http://localhost:8989/stats.php (login required, see below) or as
+# JSON at http://localhost:8989/results/json.php?id=<test id>.
 services:
   backend-go:
     build:
       context: ./backend-go
     ports:
       - "8989:8989"
+    volumes:
+      # Config kept in this repo instead of patched into the submodule.
+      - ./docker/backend-go.settings.toml:/app/settings.toml:ro
+      - speedtest-results:/data
+    environment:
+      # Read by viper via SetEnvPrefix("speedtest") + AutomaticEnv.
+      #
+      # This is NOT optional. results/stats.go:54 treats the literal default
+      # "PASSWORD" as "no password configured" and then serves the statistics
+      # page - every recorded result, with client IPs and ISPs - to anyone who
+      # asks, with no login at all. Set it to something real.
+      SPEEDTEST_STATISTICS_PASSWORD: ${SPEEDTEST_STATISTICS_PASSWORD:?set a statistics password, e.g. SPEEDTEST_STATISTICS_PASSWORD=... docker compose up}
+
+volumes:
+  speedtest-results:

@@ -1,5 +1,5 @@
 {
-  "telemetry_level": "off",
+  "telemetry_level": "full",
   "test_order": "IP_D_U",
   "time_dl_max": 12,
   "time_ul_max": 12,

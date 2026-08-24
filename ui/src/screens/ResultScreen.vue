@@ -113,7 +113,13 @@ const timings = computed(() =>
         <dt class="label">{{ row.key }}</dt>
         <dd>{{ fmtTiming(row.value) }} {{ t("unit.ms") }}</dd>
       </div>
+      <div v-if="test.testId" class="detail">
+        <dt class="label">{{ t("result.testId") }}</dt>
+        <dd><code class="test-id">{{ test.testId }}</code></dd>
+      </div>
     </dl>
+
+    <p v-if="test.testId" class="id-hint">{{ t("result.testIdHint") }}</p>
 
     <div class="actions">
       <button type="button" class="btn btn-primary btn-block" @click="$emit('again')">
@@ -161,6 +167,18 @@ const timings = computed(() =>
   color: var(--text-secondary);
   text-align: right;
   overflow-wrap: anywhere;
+}
+
+.test-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--fs-xs);
+  user-select: all;
+}
+
+.id-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  text-align: center;
 }
 
 .actions {

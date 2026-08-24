@@ -1,0 +1,50 @@
+# Config for the vendored librespeed/speedtest-go backend (backend-go/).
+#
+# Lives here, in this repo, rather than in the submodule: the submodule tracks
+# upstream, and every local edit there is a patch to carry forward on every
+# upgrade. docker-compose.backend-go.yml mounts this file over /app/settings.toml.
+#
+# Secrets do NOT belong in this file. viper is configured with
+# SetEnvPrefix("speedtest") + AutomaticEnv (backend-go/config/config.go:70), so
+# any key below can be overridden by SPEEDTEST_<KEY_IN_CAPS> at runtime. The
+# statistics password is set that way - see docker-compose.backend-go.yml.
+
+bind_address = ""
+listen_port = 8989
+
+# MUST stay false. speedtest_worker.js opens 5 parallel download streams to get
+# past the single-flow TCP ceiling. Over HTTP/2 all five multiplex onto ONE TCP
+# connection, the multi-stream advantage disappears, and the measurement comes
+# out low with no error anywhere to explain it.
+enable_http2 = false
+enable_tls = false
+
+# Where the test server claims to be, used for the distance shown to the client.
+# Placeholder until a real Unitel site is chosen - Vientiane city centre.
+server_lat = 17.9757
+server_lng = 102.6331
+distance_unit = "K"
+
+# Result collection.
+#
+# This is the point of the deployment: without a database the numbers exist only
+# on the handset that produced them and network operations has nothing to look
+# at. "none" disables recording AND the statistics page entirely.
+#
+# bolt is an embedded pure-Go store, which is what the scratch-based image can
+# run (it is built with CGO_ENABLED=0, so sqlite is not an option). It is fine
+# for a single instance. Switch to postgresql/mysql when results need to be
+# queried by anything other than the stats page, or when more than one test
+# server writes to the same store.
+database_type = "bolt"
+database_file = "/data/speedtest.db"
+
+# Operations needs the client IP to tie a result to a subscriber line, so this
+# stays false. It is the setting to revisit if this is ever opened past internal
+# use - see docs/architecture.md §7.
+redact_ip_addresses = false
+
+# GeoIP fallback for ISP/country when ipinfo.io is not configured. The file ships
+# in this repo at backend/country_asn.mmdb; mount it if you want ISP names.
+# geoip_database_file = "/app/country_asn.mmdb"
+ipinfo_api_key = ""

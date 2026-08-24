@@ -1,5 +1,8 @@
 import { reactive } from "vue";
 
+import { locale } from "../i18n/index.js";
+import { connectionType } from "./ui.js";
+
 /*
   The bridge between the measurement engine (global `Speedtest`, loaded as a
   plain script - see ui/vite.config.mjs) and the Vue layer.
@@ -71,6 +74,14 @@ export const test = reactive({
   usedServer: null,
   selection: { running: false, done: 0, total: 0 },
 
+  /*
+    Identifier the backend assigns to this result once telemetry is stored.
+    Worth surfacing: it is the only handle a user has to quote to network
+    operations so they can pull up the exact run rather than a description
+    of it. Empty when telemetry is off or the write failed.
+  */
+  testId: "",
+
   error: null
 });
 
@@ -109,6 +120,7 @@ function resetRun() {
   test.dlSamples = [];
   test.ulSamples = [];
   test.aborted = false;
+  test.testId = "";
   test.error = null;
 }
 
@@ -237,6 +249,43 @@ export function startTest() {
   test.usedServer = server;
   if (server) instance.setSelectedServer(server);
 
+  /*
+    Point telemetry at the test server, not at wherever the page came from.
+
+    url_telemetry defaults to the relative "results/telemetry.php"
+    (speedtest_worker.js:71), and speedtest.js rewrites url_dl/ul/ping/getIp
+    from the selected server but deliberately leaves this one alone. On the
+    web that merely posts results to the static host; inside the super-app
+    the page is served by the super-app, so results would be POSTed there -
+    to a host that has no such endpoint. Either way network operations gets
+    nothing, with no error the user would ever see.
+  */
+  if (server) {
+    const telemetryPath = server.telemetryURL || "results/telemetry.php";
+    instance.setParameter("url_telemetry", server.server + telemetryPath);
+  }
+
+  /*
+    Context operations needs to read a number, sent alongside it. The engine
+    wraps whatever is passed here as {server, extra}, so this arrives nested
+    one level down in the stored record.
+
+    Deliberately excluded: anything identifying the subscriber. The ISDN is
+    what operations actually wants in order to tie a result to a line, but
+    how to obtain it is unresolved (docs/bridge.md - wv.getAuthCode is not in
+    the public WindVane API), and inventing a placeholder for it here would
+    put a field in the database that nothing fills.
+  */
+  instance.setParameter(
+    "telemetry_extra",
+    JSON.stringify({
+      connection: connectionType.value || "unknown",
+      locale: locale.value,
+      ua: navigator.userAgent,
+      client: "unitel-speedtest-ui"
+    })
+  );
+
   instance.onupdate = (data) => {
     const stage = WORKER_STAGE[String(data.testState)] || STAGE.IDLE;
     test.stage = stage;
@@ -252,6 +301,7 @@ export function startTest() {
     test.tcp = num(data.tcpTime);
     test.tls = num(data.tlsTime);
     test.ttfb = num(data.ttfbTime);
+    if (data.testId) test.testId = data.testId;
 
     if (data.clientIp) {
       // getIP.php returns "ip - isp, distance" when ISP info is on.
