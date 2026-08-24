@@ -26,7 +26,11 @@ test.describe('Runtime mode smoke coverage', () => {
   test('Alpine standalone serves modern frontend settings', async ({ page, request }) => {
     const settings = await request.get(`${baseUrls.standaloneAlpine}/settings.json`);
     expect(settings.ok()).toBeTruthy();
-    await expect(settings.json()).resolves.toMatchObject({ telemetry_level: 'off', time_dl_max: 12 });
+    // telemetry_level must not be 'off'. Results that stay on the handset are
+    // invisible to network operations, which is the reason this app exists;
+    // silently switching it back off would break the product without breaking
+    // any measurement. See docs/architecture.md §4.
+    await expect(settings.json()).resolves.toMatchObject({ telemetry_level: 'full', time_dl_max: 12 });
 
     await page.goto(`${baseUrls.standaloneAlpine}/index-modern.html`);
     await expect(modernStartButton(page)).toBeVisible();
