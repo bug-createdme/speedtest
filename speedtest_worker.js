@@ -12,6 +12,10 @@ let ulStatus = ""; // upload speed in megabit/s with 2 decimal digits
 let pingStatus = ""; // ping in milliseconds with 2 decimal digits
 let jitterStatus = ""; // jitter in milliseconds with 2 decimal digits
 let clientIp = ""; // client's IP address as reported by getIP.php
+let dnsTime = 0; // DNS lookup time in ms for the connection to the test server, 0 if unavailable
+let tcpTime = 0; // TCP connect time in ms for the connection to the test server, 0 if unavailable
+let tlsTime = 0; // TLS handshake time in ms, 0 if unavailable or the connection isn't HTTPS
+let ttfbTime = 0; // time to first byte in ms for the getIp request, 0 if unavailable
 let dlProgress = 0; //progress of download test 0-1
 let ulProgress = 0; //progress of upload test 0-1
 let pingProgress = 0; //progress of ping+jitter test 0-1
@@ -56,6 +60,7 @@ let settings = {
 	xhr_multistreamDelay: 300, //how much concurrent requests should be delayed
 	xhr_ignoreErrors: 1, // 0=fail on errors, 1=attempt to restart a stream if it fails, 2=ignore all errors
 	xhr_dlUseBlob: false, // if set to true, it reduces ram usage but uses the hard drive (useful with large garbagePhp_chunkSize and/or high xhr_dlMultistream)
+	xhr_dlUseFetch: true, // if true and the browser supports it, download uses fetch()+ReadableStream instead of XHR responseType arraybuffer/blob. Each chunk is counted and discarded as it arrives instead of being held in memory until the whole response completes, which matters at high garbagePhp_chunkSize * xhr_dlMultistream. Falls back to XHR automatically where fetch/ReadableStream/AbortController aren't available (e.g. IE11). xhr_dlUseBlob is ignored when this is active.
 	xhr_ul_blob_megabytes: 20, //size in megabytes of the upload blobs sent in the upload test (forced to 4 on chrome mobile)
 	garbagePhp_chunkSize: 100, // size of chunks sent by garbage.php (can be different if enable_quirks is active)
 	enable_quirks: true, // enable quirks for specific browsers. currently it overrides settings to optimize for specific browsers, unless they are already being overridden with the start command
@@ -77,6 +82,22 @@ let test_pointer = 0; //pointer to the next test to run inside settings.test_ord
 */
 function url_sep(url) {
 	return url.match(/\?/) ? "&" : "?";
+}
+
+/*
+	Builds the URL for one upload request. Deliberately has no cache-busting
+	"r=" parameter, unlike the GET endpoints (download, ping): browsers never
+	cache POST responses, and empty.php/its equivalents already send explicit
+	no-cache headers, so "r=" bought nothing there. What it did do is defeat
+	CORS-preflight caching: a cross-origin upload preflights on every single
+	chunk regardless of headers, because attaching xhr.upload.onprogress alone
+	makes the request non-simple (Chromium/WebKit's guard against leaking
+	cross-origin upload timing). With a stable URL, the server's
+	Access-Control-Max-Age lets the browser reuse that preflight instead of
+	repeating it before every chunk.
+*/
+function uploadUrl(baseUrl) {
+	return settings.mpot ? baseUrl + url_sep(baseUrl) + "cors=true" : baseUrl;
 }
 
 /*
@@ -126,6 +147,51 @@ function timingForUrl(url) {
 		return null;
 	}
 }
+/*
+	DNS/TCP/TLS/TTFB breakdown for one absolute URL, from the same Resource
+	Timing entry as timingForUrl(). Only meaningful for the request that
+	*actually* opens the connection: once it's reused (HTTP keep-alive), later
+	requests correctly report ~0 for domainLookup/connect/secureConnection,
+	because no new lookup or handshake happened for them.
+
+	Call this right after getIp(). That is the worker's own first request, but
+	it is frequently NOT the first request to that origin overall: the normal
+	multi-point-of-test flow (addTestPoint + selectServer) already pinged the
+	same server from the main thread before the worker even starts, and a
+	same-origin standalone deployment may have already warmed the connection
+	just loading the page's own assets. In both cases dns/tcp/tls will
+	legitimately read 0 here — that's an accurate "no new connection setup was
+	needed" signal, not a bug, but it means a real positive reading is the
+	exception rather than the rule for MPOT setups, which is exactly the
+	setup this project's production deployment (WebView -> Unitel backend)
+	is expected to use. ttfbTime doesn't have this caveat: it reflects this
+	specific request regardless of whether the connection was already open.
+
+	Cross origin responses only populate these fields at all if the server
+	sends Timing-Allow-Origin for our origin; without it every value below
+	reads 0, same restriction timingForUrl() already documents for
+	responseStart/requestStart.
+*/
+function connectionTimingForUrl(url) {
+	try {
+		if (typeof performance === "undefined" || !performance.getEntriesByName) return null;
+		const entries = performance.getEntriesByName(url);
+		if (!entries || entries.length === 0) return null;
+		const p = entries[entries.length - 1];
+		const dns = p.domainLookupEnd - p.domainLookupStart;
+		const tcp = p.connectEnd - p.connectStart;
+		const tls = p.secureConnectionStart > 0 ? p.connectEnd - p.secureConnectionStart : 0;
+		const ttfb = p.responseStart - p.requestStart;
+		return {
+			dns: dns > 0 ? dns : 0,
+			tcp: tcp > 0 ? tcp : 0,
+			tls: tls > 0 ? tls : 0,
+			ttfb: ttfb > 0 ? ttfb : 0
+		};
+	} catch (e) {
+		return null;
+	}
+}
 
 /*
 	listener for commands from main thread to this worker.
@@ -150,7 +216,11 @@ this.addEventListener("message", function(e) {
 				dlProgress: dlProgress,
 				ulProgress: ulProgress,
 				pingProgress: pingProgress,
-				testId: testId
+				testId: testId,
+				dnsTime: dnsTime,
+				tcpTime: tcpTime,
+				tlsTime: tlsTime,
+				ttfbTime: ttfbTime
 			})
 		);
 	}
@@ -311,6 +381,10 @@ this.addEventListener("message", function(e) {
 		dlProgress = 0;
 		ulProgress = 0;
 		pingProgress = 0;
+		dnsTime = 0;
+		tcpTime = 0;
+		tlsTime = 0;
+		ttfbTime = 0;
 	}
 });
 // stops all XHR activity, aggressively
@@ -346,6 +420,8 @@ function getIp(done) {
 	if (ipCalled) return;
 	else ipCalled = true; // getIp already called?
 	let startT = new Date().getTime();
+	const ipUrl = settings.url_getIp + url_sep(settings.url_getIp) + (settings.mpot ? "cors=true&" : "") + (settings.getIp_ispInfo ? "isp=true" + (settings.getIp_ispInfo_distance ? "&distance=" + settings.getIp_ispInfo_distance + "&" : "&") : "&") + "r=" + Math.random();
+	const ipUrlAbs = absoluteUrl(ipUrl);
 	xhr = new XMLHttpRequest();
 	xhr.onload = function() {
 		tlog("IP: " + xhr.responseText + ", took " + (new Date().getTime() - startT) + "ms");
@@ -357,13 +433,23 @@ function getIp(done) {
 			clientIp = xhr.responseText;
 			ispInfo = "";
 		}
+		// getIp is always the first request to the test server (ping now runs
+		// before download/upload), so this is the one point in the whole test
+		// where DNS lookup / TCP connect / TLS handshake timing is meaningful.
+		const t = connectionTimingForUrl(ipUrlAbs);
+		if (t) {
+			dnsTime = t.dns;
+			tcpTime = t.tcp;
+			tlsTime = t.tls;
+			ttfbTime = t.ttfb;
+		}
 		done();
 	};
 	xhr.onerror = function() {
 		tlog("getIp failed, took " + (new Date().getTime() - startT) + "ms");
 		done();
 	};
-	xhr.open("GET", settings.url_getIp + url_sep(settings.url_getIp) + (settings.mpot ? "cors=true&" : "") + (settings.getIp_ispInfo ? "isp=true" + (settings.getIp_ispInfo_distance ? "&distance=" + settings.getIp_ispInfo_distance + "&" : "&") : "&") + "r=" + Math.random(), true);
+	xhr.open("GET", ipUrl, true);
 	xhr.send();
 }
 // download test, calls done function when it's over
@@ -378,8 +464,8 @@ function dlTest(done) {
 		graceTimeDone = false, //set to true after the grace time is past
 		failed = false; // set to true if a stream fails
 	xhr = [];
-	// function to create a download stream. streams are slightly delayed so that they will not end at the same time
-	const testStream = function(i, delay) {
+	// function to create a download stream using XHR. streams are slightly delayed so that they will not end at the same time
+	const testStreamXhr = function(i, delay) {
 		setTimeout(
 			function() {
 				if (testState !== 1) return; // delayed stream ended up starting after the end of the download test
@@ -429,6 +515,66 @@ function dlTest(done) {
 			1 + delay
 		);
 	}.bind(this);
+	/*
+		Download stream using fetch()+ReadableStream instead of XHR. Each chunk
+		is added to totLoaded and dropped immediately (no reference kept), so
+		RAM use stays flat regardless of garbagePhp_chunkSize, unlike XHR's
+		arraybuffer/blob responseType which holds the *entire* response in
+		memory until onload fires. Exposes the same abort()/onprogress/onload/
+		onerror surface on the xhr[i] slot as the XHR path so clearRequests()
+		(shared with upload and ping) doesn't need to know which one is active.
+	*/
+	const testStreamFetch = function(i, delay) {
+		setTimeout(
+			function() {
+				if (testState !== 1) return;
+				tverb("dl test stream (fetch) started " + i + " " + delay);
+				const controller = new AbortController();
+				const slot = { onprogress: null, onload: null, onerror: null, upload: {} };
+				slot.abort = function() {
+					try {
+						controller.abort();
+					} catch (e) {}
+				};
+				xhr[i] = slot;
+				const url = settings.url_dl + url_sep(settings.url_dl) + (settings.mpot ? "cors=true&" : "") + "r=" + Math.random() + "&ckSize=" + settings.garbagePhp_chunkSize;
+				fetch(url, { signal: controller.signal, cache: "no-store", credentials: "same-origin" })
+					.then(function(response) {
+						if (!response.ok || !response.body) throw new Error("HTTP " + response.status);
+						const reader = response.body.getReader();
+						const pump = function() {
+							return reader.read().then(function(result) {
+								if (testState !== 1) {
+									try {
+										controller.abort();
+									} catch (e) {}
+									return;
+								}
+								if (result.done) {
+									tverb("dl stream (fetch) finished " + i);
+									testStream(i, 0);
+									return;
+								}
+								const len = result.value ? result.value.length : 0;
+								if (len > 0 && isFinite(len)) totLoaded += len;
+								return pump();
+							});
+						};
+						return pump();
+					})
+					.catch(function(err) {
+						if (controller.signal.aborted) return; // expected: end of test or a stale stream, not a real failure
+						tverb("dl stream (fetch) failed " + i + " " + err);
+						if (settings.xhr_ignoreErrors === 0) failed = true;
+						delete xhr[i];
+						if (settings.xhr_ignoreErrors === 1) testStream(i, 0);
+					});
+			}.bind(this),
+			1 + delay
+		);
+	}.bind(this);
+	const useFetchDl = settings.xhr_dlUseFetch && typeof fetch === "function" && typeof AbortController === "function" && typeof ReadableStream !== "undefined";
+	const testStream = useFetchDl ? testStreamFetch : testStreamXhr;
 	// open streams
 	for (let i = 0; i < settings.xhr_dlMultistream; i++) {
 		testStream(i, settings.xhr_multistreamDelay * i);
@@ -530,11 +676,10 @@ function ulTest(done) {
 							totLoaded += reqsmall.size;
 							testStream(i, 0);
 						};
-						xhr[i].open("POST", settings.url_ul + url_sep(settings.url_ul) + (settings.mpot ? "cors=true&" : "") + "r=" + Math.random(), true); // random string to prevent caching
+						xhr[i].open("POST", uploadUrl(settings.url_ul), true);
 						//No Content-Type header in MPOT branch because it triggers bugs in some browsers.
 						//No Content-Encoding header either: browsers never compress a request body, so
-						//"identity" bought us nothing while making the request non-simple, which costs a
-						//CORS preflight round trip before every single upload chunk.
+						//"identity" bought us nothing while making the request non-simple.
 						xhr[i].send(reqsmall);
 					} else {
 						// REGULAR version, no workaround
@@ -576,11 +721,10 @@ function ulTest(done) {
 							}
 						}.bind(this);
 						// send xhr
-						xhr[i].open("POST", settings.url_ul + url_sep(settings.url_ul) + (settings.mpot ? "cors=true&" : "") + "r=" + Math.random(), true); // random string to prevent caching
+						xhr[i].open("POST", uploadUrl(settings.url_ul), true);
 						//No Content-Type header in MPOT branch because it triggers bugs in some browsers.
 						//No Content-Encoding header either: browsers never compress a request body, so
-						//"identity" bought us nothing while making the request non-simple, which costs a
-						//CORS preflight round trip before every single upload chunk.
+						//"identity" bought us nothing while making the request non-simple.
 						xhr[i].send(req);
 					}
 				}.bind(this),

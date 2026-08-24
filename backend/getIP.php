@@ -169,6 +169,13 @@ if (isset($_GET['cors'])) {
     header('Access-Control-Allow-Origin: *');
     header('Access-Control-Allow-Methods: GET, POST');
 }
+// Cross-origin Resource Timing entries hide domainLookup*/connect*/secureConnection*/
+// requestStart/responseStart unless the server opts in with Timing-Allow-Origin; without
+// it, the client's DNS/TCP/TLS timing breakdown reads as 0 in exactly the cross-origin
+// (MPOT/WebView) setup this is for. This request is always the first one to the test
+// server (ping now runs before download/upload), so it's the one point where that
+// breakdown is meaningful before the connection gets reused via keep-alive.
+header('Timing-Allow-Origin: *');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0, s-maxage=0');
 header('Cache-Control: post-check=0, pre-check=0', false);
 header('Pragma: no-cache');
