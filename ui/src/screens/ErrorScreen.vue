@@ -1,0 +1,145 @@
+<script setup>
+import { computed, ref } from "vue";
+import { test } from "../state/test.js";
+import { SCREEN, goTo } from "../state/ui.js";
+import { useI18n } from "../i18n/index.js";
+
+defineEmits(["retry"]);
+const { t } = useI18n();
+
+const showDetails = ref(false);
+
+/*
+  Replaces the native alert() the old UI raised when no server answered
+  (frontend/javascript/index.js). In a WebView that dialog is unstyled, cannot
+  be translated, blocks the JS thread, and offers exactly one action: OK. This
+  screen says what failed, what the user can actually do about it, and keeps
+  both recovery paths reachable.
+*/
+const isNoServer = computed(() => test.error && test.error.kind === "no-server");
+
+const title = computed(() =>
+  isNoServer.value ? t("error.noServerTitle") : t("error.title")
+);
+const body = computed(() =>
+  isNoServer.value ? t("error.noServerBody") : t("error.body")
+);
+
+const canChooseServer = computed(() => test.servers.length > 1);
+</script>
+
+<template>
+  <section class="error">
+    <div class="error-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false">
+        <path
+          d="M12 8v5m0 3.5v.01M10.3 3.9 2.5 17.5A2 2 0 0 0 4.2 20.5h15.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </div>
+
+    <h2 class="error-title">{{ title }}</h2>
+    <p class="error-body">{{ body }}</p>
+
+    <ul class="hints">
+      <li>{{ t("error.hintNetwork") }}</li>
+      <li>{{ t("error.hintVpn") }}</li>
+      <li>{{ t("error.hintRetry") }}</li>
+    </ul>
+
+    <div class="actions">
+      <button type="button" class="btn btn-primary btn-block" @click="$emit('retry')">
+        {{ t("action.retry") }}
+      </button>
+      <button
+        v-if="canChooseServer"
+        type="button"
+        class="btn btn-ghost btn-block"
+        @click="goTo(SCREEN.SERVERS)"
+      >
+        {{ t("action.chooseServer") }}
+      </button>
+      <button
+        v-if="test.error && test.error.detail"
+        type="button"
+        class="btn btn-ghost btn-block"
+        :aria-expanded="showDetails"
+        @click="showDetails = !showDetails"
+      >
+        {{ showDetails ? t("action.hideDetails") : t("action.showDetails") }}
+      </button>
+    </div>
+
+    <pre v-if="showDetails && test.error" class="detail-box">{{ test.error.detail }}</pre>
+  </section>
+</template>
+
+<style scoped>
+.error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+  flex: 1;
+  justify-content: center;
+  text-align: center;
+  width: 100%;
+}
+
+.error-icon {
+  color: var(--danger);
+}
+
+.error-icon svg {
+  width: 3rem;
+  height: 3rem;
+}
+
+.error-title {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+}
+
+.error-body {
+  color: var(--text-secondary);
+  max-width: 28rem;
+}
+
+.hints {
+  margin: 0;
+  padding: var(--sp-4);
+  list-style: none;
+  background: var(--danger-bg);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-align: start;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  width: 100%;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  width: 100%;
+}
+
+.detail-box {
+  width: 100%;
+  margin: 0;
+  padding: var(--sp-3);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-xs);
+  text-align: start;
+  overflow-x: auto;
+}
+</style>

@@ -13,7 +13,10 @@
     "format:check": "prettier --check \"*.js\"",
     "validate": "npm run format:check && npm run lint",
     "docker:build": "docker build -t librespeed-speedtest .",
-    "docker:build-alpine": "docker build -t librespeed-speedtest:alpine -f Dockerfile.alpine ."
+    "docker:build-alpine": "docker build -t librespeed-speedtest:alpine -f Dockerfile.alpine .",
+    "ui:dev": "vite --config ui/vite.config.mjs",
+    "ui:build": "vite build --config ui/vite.config.mjs",
+    "ui:preview": "vite preview --config ui/vite.config.mjs"
   },
   "repository": {
     "type": "git",
@@ -40,8 +43,11 @@
   "homepage": "https://github.com/bug-createdme/speedtest#readme",
   "devDependencies": {
     "@playwright/test": "^1.55.0",
+    "@vitejs/plugin-vue": "^6.0.8",
     "eslint": "^8.57.0",
-    "prettier": "^3.1.1"
+    "prettier": "^3.1.1",
+    "vite": "^7.3.6",
+    "vue": "^3.5.41"
   },
   "files": [
     "speedtest.js",
