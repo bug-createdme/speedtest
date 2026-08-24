@@ -5,5 +5,6 @@
   "time_ul_max": 12,
   "time_dlGraceTime": 1.5,
   "time_ulGraceTime": 3,
-  "time_auto": false
+  "time_auto": false,
+  "loaded_latency": true
 }

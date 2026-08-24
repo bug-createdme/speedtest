@@ -59,6 +59,17 @@ export default {
   "result.testId": "Result ID",
   "result.testIdHint": "Quote this to network operations to pull up this exact run",
 
+  "loaded.title": "Latency under load",
+  "loaded.explain": "How much latency the connection adds while it is busy. Large increases make calls and video conferencing break up even when the speed looks fine.",
+  "loaded.download": "During download",
+  "loaded.upload": "During upload",
+  "loaded.idle": "Idle",
+  "loaded.worst": "worst {value} ms",
+  "loaded.increase": "+{value} ms",
+  "loaded.loss": "Failed probes",
+  "loaded.lossSamples": "{count} probes",
+  "loaded.lossCaveat": "Share of latency probes that failed or timed out. TCP hides mild packet loss, so a high value means a real problem but a zero is not proof the link is clean.",
+
   "result.summary":
     "Download {download} Mbps, upload {upload} Mbps, ping {ping} milliseconds",
 

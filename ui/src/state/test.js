@@ -55,6 +55,21 @@ export const test = reactive({
   tls: 0,
   ttfb: 0,
 
+  /*
+    Latency under load, and the loss estimate that comes with it.
+
+    idlePingAvg exists so the loaded figures have something comparable to sit
+    next to: `ping` above is the MINIMUM of the idle samples, and subtracting
+    a minimum from an average would inflate the apparent increase.
+  */
+  idlePingAvg: 0,
+  dlPing: 0,
+  dlPingMax: 0,
+  ulPing: 0,
+  ulPingMax: 0,
+  packetLoss: 0,
+  probeCount: 0,
+
   dlProgress: 0,
   ulProgress: 0,
   pingProgress: 0,
@@ -114,6 +129,13 @@ function resetRun() {
   test.upload = 0;
   test.ping = 0;
   test.jitter = 0;
+  test.idlePingAvg = 0;
+  test.dlPing = 0;
+  test.dlPingMax = 0;
+  test.ulPing = 0;
+  test.ulPingMax = 0;
+  test.packetLoss = 0;
+  test.probeCount = 0;
   test.dlProgress = 0;
   test.ulProgress = 0;
   test.pingProgress = 0;
@@ -301,6 +323,13 @@ export function startTest() {
     test.tcp = num(data.tcpTime);
     test.tls = num(data.tlsTime);
     test.ttfb = num(data.ttfbTime);
+    test.idlePingAvg = num(data.idlePingAvgStatus);
+    test.dlPing = num(data.dlPingStatus);
+    test.dlPingMax = num(data.dlPingMaxStatus);
+    test.ulPing = num(data.ulPingStatus);
+    test.ulPingMax = num(data.ulPingMaxStatus);
+    test.packetLoss = num(data.packetLossStatus);
+    test.probeCount = num(data.probeCountStatus);
     if (data.testId) test.testId = data.testId;
 
     if (data.clientIp) {

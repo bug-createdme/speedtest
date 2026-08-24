@@ -95,3 +95,37 @@ Two things this UI has to do that the engine does not do for you:
 The result screen shows the id the backend assigns, so a user can quote it and
 operations can pull up that exact run at
 `/results/json.php?id=<id>` or on `/stats.php`.
+
+## Latency under load, and probe loss
+
+The idle ping answers "how far away is the server". It does not answer the
+question network operations actually has, which is whether the line stays
+usable while it is carrying traffic. A link that reports 100 Mbps and 20ms
+idle, but 800ms of latency the moment a download starts, is broken for calls
+and video conferencing - and the idle figure reports it as healthy.
+
+The engine therefore probes latency *during* the download and upload phases
+(`loaded_latency` in `settings.json`, on by default) and the result screen
+shows the increase over idle, the worst sample, and the share of probes that
+did not complete.
+
+Three things worth knowing before reading those numbers:
+
+- **The comparison is average against average.** `pingStatus` reports the
+  *minimum* idle sample, which is right for an idle link but would inflate the
+  apparent increase if subtracted from a loaded average. `idlePingAvgStatus`
+  exists purely to give the loaded figures a like-for-like baseline.
+- **The loss figure is a request loss rate, not an IP packet loss counter.**
+  TCP retransmits underneath, so a link genuinely dropping a few percent of
+  packets will usually still complete every probe. A high value is strong
+  evidence of a problem; a zero is not evidence of a clean link. The sample
+  count is shown next to it for that reason.
+- **One connection slot is reserved for the probe.** Browsers cap concurrent
+  connections per host at 6; the engine caps download streams at 5 when
+  probing, so the probe is never stuck in the browser's own queue measuring
+  queueing delay instead of the network. Chrome already used 5, so on the
+  engine that matters for the WebView this changes nothing.
+
+The severity thresholds behind the colour of the increase (30ms, 100ms) are in
+`ResultScreen.vue` and follow the grading in common use for bufferbloat tests.
+If operations has its own thresholds, that function is the one place to change.

@@ -16,6 +16,13 @@ let dnsTime = 0; // DNS lookup time in ms for the connection to the test server,
 let tcpTime = 0; // TCP connect time in ms for the connection to the test server, 0 if unavailable
 let tlsTime = 0; // TLS handshake time in ms, 0 if unavailable or the connection isn't HTTPS
 let ttfbTime = 0; // time to first byte in ms for the getIp request, 0 if unavailable
+let idlePingAvgStatus = ""; // average idle ping in ms. pingStatus reports the MINIMUM, which answers "how good can this link get" but is not comparable with the loaded figures below - those have to be averages to mean anything
+let dlPingStatus = ""; // average ping in ms measured while the download test was running
+let dlPingMaxStatus = ""; // worst ping in ms seen during the download test
+let ulPingStatus = ""; // average ping in ms measured while the upload test was running
+let ulPingMaxStatus = ""; // worst ping in ms seen during the upload test
+let packetLossStatus = ""; // percentage of latency probes that failed or timed out. Read the caveat where the probe is implemented before trusting a zero here
+let probeCountStatus = 0; // how many probes the figure above is based on
 let dlProgress = 0; //progress of download test 0-1
 let ulProgress = 0; //progress of upload test 0-1
 let pingProgress = 0; //progress of ping+jitter test 0-1
@@ -58,6 +65,9 @@ let settings = {
 	xhr_dlMultistream: 6, // number of download streams to use (can be different if enable_quirks is active)
 	xhr_ulMultistream: 3, // number of upload streams to use (can be different if enable_quirks is active)
 	xhr_multistreamDelay: 300, //how much concurrent requests should be delayed
+	loaded_latency: true, //also sample latency WHILE the transfers run, not only on an idle link. A line reporting 100 Mbps but 800ms of latency during a download is unusable for anything interactive, and the idle ping never shows it
+	loaded_latency_interval: 250, //ms between latency probes while a transfer is running
+	loaded_latency_timeout: 2000, //ms after which a probe counts as lost rather than merely slow
 	xhr_ignoreErrors: 1, // 0=fail on errors, 1=attempt to restart a stream if it fails, 2=ignore all errors
 	xhr_dlUseBlob: false, // if set to true, it reduces ram usage but uses the hard drive (useful with large garbagePhp_chunkSize and/or high xhr_dlMultistream)
 	xhr_dlUseFetch: true, // if true and the browser supports it, download uses fetch()+ReadableStream instead of XHR responseType arraybuffer/blob. Each chunk is counted and discarded as it arrives instead of being held in memory until the whole response completes, which matters at high garbagePhp_chunkSize * xhr_dlMultistream. Falls back to XHR automatically where fetch/ReadableStream/AbortController aren't available (e.g. IE11). xhr_dlUseBlob is ignored when this is active.
@@ -220,7 +230,14 @@ this.addEventListener("message", function(e) {
 				dnsTime: dnsTime,
 				tcpTime: tcpTime,
 				tlsTime: tlsTime,
-				ttfbTime: ttfbTime
+				ttfbTime: ttfbTime,
+				idlePingAvgStatus: idlePingAvgStatus,
+				dlPingStatus: dlPingStatus,
+				dlPingMaxStatus: dlPingMaxStatus,
+				ulPingStatus: ulPingStatus,
+				ulPingMaxStatus: ulPingMaxStatus,
+				packetLossStatus: packetLossStatus,
+				probeCountStatus: probeCountStatus
 			})
 		);
 	}
@@ -284,6 +301,21 @@ this.addEventListener("message", function(e) {
 			if (typeof s.telemetry_level !== "undefined") settings.telemetry_level = s.telemetry_level === "basic" ? 1 : s.telemetry_level === "full" ? 2 : s.telemetry_level === "debug" ? 3 : 0; // telemetry level
 			//transform test_order to uppercase, just in case
 			settings.test_order = settings.test_order.toUpperCase();
+			/*
+				Reserve one connection slot for the latency probe.
+			
+				Browsers cap concurrent connections per host at 6 - Chrome, Firefox and
+				Safari alike. The download test opens xhr_dlMultistream of them, so at the
+				default 6 there is no slot left: the probe would sit in the browser's own
+				queue waiting for a stream to finish. It would still produce a number, and
+				that number would be queueing delay inside the browser rather than latency
+				on the network - the one thing the measurement exists to find. Chrome
+				already gets 5 from the quirks above, so on the most common browser this
+				changes nothing at all.
+			*/
+			if (settings.loaded_latency && settings.xhr_dlMultistream > 5) {
+				settings.xhr_dlMultistream = 5;
+			}
 		} catch (e) {
 			twarn("Possible error in custom test settings. Some settings might not have been applied. Exception: " + e);
 		}
@@ -385,11 +417,27 @@ this.addEventListener("message", function(e) {
 		tcpTime = 0;
 		tlsTime = 0;
 		ttfbTime = 0;
+		idlePingAvgStatus = "";
+		dlPingStatus = "";
+		dlPingMaxStatus = "";
+		ulPingStatus = "";
+		ulPingMaxStatus = "";
+		packetLossStatus = "";
+		probeCountStatus = 0;
+		loadedLatency = { dl: { sent: 0, lost: 0, samples: [] }, ul: { sent: 0, lost: 0, samples: [] } };
 	}
 });
 // stops all XHR activity, aggressively
 function clearRequests() {
 	tverb("stopping pending XHRs");
+	/*
+		The latency probe is not in the xhr array - it has its own slot so that a
+		transfer stream restarting cannot clobber it. That means the loop below
+		would not touch it, and an aborted test would leave it firing at the server
+		until the worker itself was torn down. Stopping it here covers every path
+		that ends a test, including the manual abort.
+	*/
+	stopLatencyProbe();
 	if (xhr) {
 		for (let i = 0; i < xhr.length; i++) {
 			try {
@@ -451,6 +499,158 @@ function getIp(done) {
 	};
 	xhr.open("GET", ipUrl, true);
 	xhr.send();
+}
+/*
+	Latency under load, and probe loss.
+	
+	The idle ping answers "how far away is the server". It says nothing about the
+	question network operations actually has, which is whether the link stays
+	usable while it is carrying traffic. A line that reports 100 Mbps down and 20ms
+	idle, but 800ms of latency the moment a download starts, is a broken line for
+	anything interactive - calls, games, video conferencing - and the idle figure
+	alone reports it as healthy. That gap is bufferbloat, and measuring it means
+	probing WHILE the transfer runs.
+	
+	One probe at a time, spaced by loaded_latency_interval, against the same
+	url_ping endpoint the idle test uses. Deliberately sequential: a burst of
+	parallel probes would compete with the transfer streams for the browser's
+	connection pool and measure that contention instead of the network.
+	
+	ON THE LOSS FIGURE - read this before trusting it.
+	
+	What is counted is the share of probes that failed or exceeded
+	loaded_latency_timeout. That is a REQUEST loss rate, not an IP packet loss
+	counter. TCP retransmits below us, so a link genuinely dropping a few percent
+	of packets will usually still complete every probe, just more slowly, and this
+	figure will read 0.00%. It moves when loss is bad enough, or latency long
+	enough, that a whole request cannot complete inside the timeout.
+	
+	So: a high number here is strong evidence of a problem. A zero is NOT evidence
+	of a clean link. probeCountStatus is reported alongside it so nobody reads a
+	"0.00%" drawn from 40 samples as a link-level guarantee.
+*/
+let loadedLatency = {
+	dl: { sent: 0, lost: 0, samples: [] },
+	ul: { sent: 0, lost: 0, samples: [] }
+};
+let probe = null; // in-flight probe machinery, null when nothing is being probed
+
+function startLatencyProbe(phase) {
+	if (!settings.loaded_latency) return;
+	stopLatencyProbe();
+	probe = { phase: phase, xhr: null, timer: null, stopped: false };
+	sendProbe();
+}
+
+/*
+	Discard what was collected during the grace period. The transfer ignores those
+	first seconds too, because the buffers are still filling and the throughput
+	figure would be wrong; the latency figure is wrong for the same reason and for
+	the same window, so both measure the same steady state.
+*/
+function resetLoadedLatencyPhase(phase) {
+	loadedLatency[phase] = { sent: 0, lost: 0, samples: [] };
+	publishLoadedLatency();
+}
+
+function stopLatencyProbe() {
+	if (!probe) return;
+	const dying = probe;
+	probe = null;
+	dying.stopped = true;
+	if (dying.timer) {
+		try {
+			clearTimeout(dying.timer);
+		} catch (e) {}
+	}
+	if (dying.xhr) {
+		try {
+			dying.xhr.onload = null;
+			dying.xhr.onerror = null;
+			dying.xhr.ontimeout = null;
+			dying.xhr.abort();
+		} catch (e) {}
+	}
+}
+
+function sendProbe() {
+	if (!probe || probe.stopped) return;
+	const current = probe;
+	const stats = loadedLatency[current.phase];
+	const url = settings.url_ping + url_sep(settings.url_ping) + (settings.mpot ? "cors=true&" : "") + "r=" + Math.random();
+	const sentAt = new Date().getTime();
+	const x = new XMLHttpRequest();
+	current.xhr = x;
+	stats.sent++;
+	const finish = function(lost) {
+		if (current.stopped || current !== probe) return; // phase ended while this was in flight
+		current.xhr = null;
+		if (lost) {
+			stats.lost++;
+		} else {
+			let rtt = new Date().getTime() - sentAt;
+			if (rtt < 1) rtt = 1; // some browsers report a flat 0 on a fast local link
+			stats.samples.push(rtt);
+		}
+		publishLoadedLatency();
+		current.timer = setTimeout(sendProbe, settings.loaded_latency_interval);
+	};
+	x.onload = function() {
+		// url_ping answers with an empty body; anything else means we did not reach it
+		finish(x.responseText.length !== 0);
+	};
+	x.onerror = function() {
+		finish(true);
+	};
+	x.ontimeout = function() {
+		finish(true);
+	};
+	try {
+		x.timeout = settings.loaded_latency_timeout;
+	} catch (e) {} // IE11 has no XHR timeout; probes there can only be counted as lost on error
+	x.open("GET", url, true);
+	x.send();
+}
+
+/*
+	Averages, not minimums.
+	
+	The idle test reports the lowest ping it saw, which is the right way to ask
+	"how good can this link get". Under load it is the wrong question and an
+	actively misleading answer: a single probe slipping through between buffer
+	drains would report an unloaded-looking figure for a badly bloated link. The
+	average is what a user experiences, and the maximum is what makes a call drop.
+*/
+function publishLoadedLatency() {
+	const dl = loadedLatency.dl;
+	const ul = loadedLatency.ul;
+
+	const totalSent = dl.sent + ul.sent;
+	const totalLost = dl.lost + ul.lost;
+	probeCountStatus = totalSent;
+	packetLossStatus = totalSent > 0 ? ((totalLost / totalSent) * 100).toFixed(2) : "";
+
+	const summarize = function(samples) {
+		if (samples.length === 0) return null;
+		let sum = 0;
+		let max = 0;
+		for (let i = 0; i < samples.length; i++) {
+			sum += samples[i];
+			if (samples[i] > max) max = samples[i];
+		}
+		return { avg: (sum / samples.length).toFixed(2), max: max.toFixed(2) };
+	};
+
+	const d = summarize(dl.samples);
+	if (d) {
+		dlPingStatus = d.avg;
+		dlPingMaxStatus = d.max;
+	}
+	const u = summarize(ul.samples);
+	if (u) {
+		ulPingStatus = u.avg;
+		ulPingMaxStatus = u.max;
+	}
 }
 // download test, calls done function when it's over
 let dlCalled = false; // used to prevent multiple accidental calls to dlTest
@@ -579,6 +779,7 @@ function dlTest(done) {
 	for (let i = 0; i < settings.xhr_dlMultistream; i++) {
 		testStream(i, settings.xhr_multistreamDelay * i);
 	}
+	startLatencyProbe("dl");
 	// every 200ms, update dlStatus
 	interval = setInterval(
 		function() {
@@ -594,6 +795,7 @@ function dlTest(done) {
 						bonusT = 0;
 						totLoaded = 0.0;
 					}
+					resetLoadedLatencyPhase("dl");
 					graceTimeDone = true;
 				}
 			} else {
@@ -608,6 +810,7 @@ function dlTest(done) {
 				if ((t + bonusT) / 1000.0 > settings.time_dl_max || failed) {
 					// test is over, stop streams and timer
 					if (failed || isNaN(dlStatus)) dlStatus = "Fail";
+					stopLatencyProbe();
 					clearRequests();
 					clearInterval(interval);
 					dlProgress = 1;
@@ -735,6 +938,7 @@ function ulTest(done) {
 		for (let i = 0; i < settings.xhr_ulMultistream; i++) {
 			testStream(i, settings.xhr_multistreamDelay * i);
 		}
+		startLatencyProbe("ul");
 		// every 200ms, update ulStatus
 		interval = setInterval(
 			function() {
@@ -750,6 +954,7 @@ function ulTest(done) {
 							bonusT = 0;
 							totLoaded = 0.0;
 						}
+						resetLoadedLatencyPhase("ul");
 						graceTimeDone = true;
 					}
 				} else {
@@ -764,6 +969,7 @@ function ulTest(done) {
 					if ((t + bonusT) / 1000.0 > settings.time_ul_max || failed) {
 						// test is over, stop streams and timer
 						if (failed || isNaN(ulStatus)) ulStatus = "Fail";
+						stopLatencyProbe();
 						clearRequests();
 						clearInterval(interval);
 						ulProgress = 1;
@@ -801,6 +1007,8 @@ function pingTest(done) {
 	let jitter = 0.0; // current jitter value
 	let i = 0; // counter of pongs received
 	let prevInstspd = 0; // last ping time, used for jitter calculation
+	let idlePingSum = 0; // running total of idle ping samples, for the average
+	let idlePingCount = 0; // how many idle samples went into that total
 	xhr = [];
 	// ping function
 	const doPing = function() {
@@ -837,6 +1045,15 @@ function pingTest(done) {
 					else jitter = instjitter > jitter ? jitter * 0.3 + instjitter * 0.7 : jitter * 0.8 + instjitter * 0.2; // update jitter, weighted average. spikes in ping values are given more weight.
 				}
 				prevInstspd = instspd;
+				/*
+					Average alongside the minimum. pingStatus keeps reporting the minimum,
+					unchanged, but the loaded figures are averages, and comparing an average
+					against a minimum would show a latency increase that is partly just the
+					change of statistic. This gives the UI a like-for-like baseline.
+				*/
+				idlePingSum += instspd;
+				idlePingCount++;
+				idlePingAvgStatus = (idlePingSum / idlePingCount).toFixed(2);
 			}
 			pingStatus = ping.toFixed(2);
 			jitterStatus = jitter.toFixed(2);
@@ -884,10 +1101,25 @@ function pingTest(done) {
 // telemetry
 function sendTelemetry(done) {
 	if (settings.telemetry_level < 1) return;
-	xhr = new XMLHttpRequest();
-	xhr.onload = function() {
+	/*
+		Hold a local reference and read the response through it.
+		
+		The module level `xhr` is shared with every other request the worker makes,
+		and clearRequests() sets it to null. If anything touches it between send and
+		response - an abort, a stage teardown racing the last status poll - the
+		handlers below would read `null.responseText`, throw into their own catch,
+		and report no id. The result is already stored on the server at that point,
+		so the failure is invisible except as a result the user cannot quote to
+		operations. Observed once in a handful of runs before this change.
+		
+		The module level assignment stays so an abort can still cancel a pending
+		post.
+	*/
+	const telemetryXhr = new XMLHttpRequest();
+	xhr = telemetryXhr;
+	telemetryXhr.onload = function() {
 		try {
-			const parts = xhr.responseText.split(" ");
+			const parts = telemetryXhr.responseText.split(" ");
 			if (parts[0] == "id") {
 				try {
 					let id = parts[1];
@@ -900,11 +1132,11 @@ function sendTelemetry(done) {
 			done(null);
 		}
 	};
-	xhr.onerror = function() {
-		console.log("TELEMETRY ERROR " + xhr.status);
+	telemetryXhr.onerror = function() {
+		console.log("TELEMETRY ERROR " + telemetryXhr.status);
 		done(null);
 	};
-	xhr.open("POST", settings.url_telemetry + url_sep(settings.url_telemetry) + (settings.mpot ? "cors=true&" : "") + "r=" + Math.random(), true);
+	telemetryXhr.open("POST", settings.url_telemetry + url_sep(settings.url_telemetry) + (settings.mpot ? "cors=true&" : "") + "r=" + Math.random(), true);
 	const telemetryIspInfo = {
 		processedString: clientIp,
 		rawIspInfo: typeof ispInfo === "object" ? ispInfo : ""
@@ -918,10 +1150,10 @@ function sendTelemetry(done) {
 		fd.append("jitter", jitterStatus);
 		fd.append("log", settings.telemetry_level > 1 ? log : "");
 		fd.append("extra", settings.telemetry_extra);
-		xhr.send(fd);
+		telemetryXhr.send(fd);
 	} catch (ex) {
 		const postData = "extra=" + encodeURIComponent(settings.telemetry_extra) + "&ispinfo=" + encodeURIComponent(JSON.stringify(telemetryIspInfo)) + "&dl=" + encodeURIComponent(dlStatus) + "&ul=" + encodeURIComponent(ulStatus) + "&ping=" + encodeURIComponent(pingStatus) + "&jitter=" + encodeURIComponent(jitterStatus) + "&log=" + encodeURIComponent(settings.telemetry_level > 1 ? log : "");
-		xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-		xhr.send(postData);
+		telemetryXhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+		telemetryXhr.send(postData);
 	}
 }

@@ -12,7 +12,7 @@ Ngày: 2026-08-24
 > Ba hệ quả, áp dụng cho toàn bộ tài liệu:
 >
 > 1. **Dữ liệu kết quả là sản phẩm chính**, không phải tính năng phụ tuỳ chọn. Kết quả phải được thu thập về server, không được chỉ nằm trên máy người dùng. (mục 4 — đã sửa)
-> 2. **Loaded latency và packet loss là chỉ số bắt buộc**, không phải "nice to have". Với vận hành mạng, "ping bao nhiêu khi đang tải" trả lời câu hỏi *mạng có ổn không* tốt hơn con số băng thông. Hiện **chưa có** — xem [analysis-phase1.md](analysis-phase1.md) §14.
+> 2. **Loaded latency và packet loss là chỉ số bắt buộc**, không phải "nice to have". Với vận hành mạng, "ping bao nhiêu khi đang tải" trả lời câu hỏi *mạng có ổn không* tốt hơn con số băng thông. **Đã bổ sung 2026-08-24** — xem mục 4b.
 > 3. **Bảo mật (Phase 9) phải lên sớm hơn**, vì sắp có dữ liệu định danh thuê bao chứ không chỉ số đo ẩn danh. Mục 7 dưới đây vẫn viết theo giả định cũ và cần đọc với lưu ý này.
 
 ## 0. Bối cảnh và giả định nền
@@ -154,6 +154,36 @@ Lưu ý về hình dạng: engine bọc thêm một lớp, nên `extra` lưu xu�
 ### Control API động — vẫn chưa xây
 
 Phase 1 (§21) đề xuất thêm một Control API động (`/servers`, `/session`) cho kịch bản scale lớn. Phần đó **vẫn chưa cần**: `server-list.json` tĩnh đủ dùng khi số test point còn ít. Ngưỡng để quay lại: khi danh sách test point cần đổi thường xuyên hơn tốc độ deploy, hoặc khi cần rate-limit/token theo phiên (Phase 9).
+
+## 4b. Độ trễ khi có tải và tỷ lệ thăm dò thất bại
+
+Ping lúc rảnh trả lời "máy chủ ở xa bao nhiêu". Nó **không** trả lời câu hỏi phòng vận hành thật sự cần: đường truyền có còn dùng được khi đang tải hay không. Một đường báo 100 Mbps, ping 20ms lúc rảnh, nhưng vọt lên 800ms ngay khi bắt đầu tải, là đường **hỏng** với gọi thoại và họp video — mà con số lúc rảnh vẫn báo là khoẻ mạnh. Đây là bufferbloat, và muốn thấy nó thì phải đo *trong lúc* truyền.
+
+Bật/tắt bằng `loaded_latency` trong `settings.json` (mặc định bật), cùng `loaded_latency_interval` (250ms) và `loaded_latency_timeout` (2000ms).
+
+### Ba quyết định thiết kế, đều có lý do
+
+**1. So sánh trung bình với trung bình.** `pingStatus` báo giá trị **nhỏ nhất** trong các mẫu lúc rảnh — đúng cho câu hỏi "đường này tốt nhất được bao nhiêu", nhưng lấy một giá trị nhỏ nhất trừ đi một trung bình sẽ thổi phồng mức tăng. Vì vậy engine bổ sung `idlePingAvgStatus` chỉ để làm mốc so sánh cùng loại thống kê. `pingStatus` giữ nguyên, không đổi hành vi cũ.
+
+**2. Dành riêng một khe kết nối cho gói thăm dò.** Trình duyệt giới hạn 6 kết nối đồng thời trên mỗi host (Chrome, Firefox, Safari như nhau). Nếu download mở đủ 6 luồng thì gói thăm dò phải xếp hàng trong chính trình duyệt — nó vẫn ra một con số, nhưng đó là **độ trễ hàng đợi của trình duyệt**, không phải độ trễ của mạng, tức đúng thứ phép đo này sinh ra để tìm. Nên khi bật `loaded_latency`, `xhr_dlMultistream` bị chặn tối đa ở 5. Chrome vốn đã dùng 5 theo quirks, nên trên engine quan trọng nhất (WebView) điều này **không đổi gì cả**.
+
+**3. Một gói thăm dò tại một thời điểm.** Gói kế tiếp chỉ được hẹn sau khi gói trước kết thúc. Bắn song song sẽ tranh kết nối với chính các luồng truyền và đo ra mức tranh chấp đó thay vì mạng.
+
+### ⚠ Về con số "thăm dò thất bại"
+
+Cái được đếm là **tỷ lệ request thất bại hoặc quá hạn**, không phải bộ đếm mất gói IP. TCP truyền lại ở tầng dưới, nên một đường thật sự rớt vài phần trăm gói vẫn thường hoàn tất mọi request, chỉ chậm hơn — và con số này sẽ đọc ra `0.00%`. Nó chỉ nhúc nhích khi mất gói đủ nặng, hoặc độ trễ đủ dài, để cả một request không kịp hoàn tất trong `loaded_latency_timeout`.
+
+Nói cách khác: **số cao là bằng chứng mạnh có vấn đề; số 0 KHÔNG phải bằng chứng đường sạch.** Vì thế giao diện luôn hiện kèm số lượng mẫu — để không ai đọc "0.00%" rút từ 40 mẫu như một bảo đảm ở tầng liên kết.
+
+Muốn đo mất gói đúng nghĩa thì cần đo ở tầng thấp hơn HTTP, việc mà JavaScript trong trình duyệt không làm được. Nếu phòng vận hành cần con số thật, đó phải là một phép đo phía hạ tầng (ICMP/UDP từ probe đặt trong mạng), không phải từ miniapp.
+
+### Chưa xác minh được: ảnh hưởng lên số đo throughput
+
+Việc thêm gói thăm dò về lý thuyết có thể làm giảm throughput đo được. Đã thử A/B trên backend Go chạy local (loopback): bật probe cho 8449/8767/9272/9418 Mbps, tắt probe cho 10566/9692/9039 Mbps. **Nhưng độ dao động giữa các lần chạy cùng cấu hình đã tới ~15%**, lớn hơn chênh lệch giữa hai nhóm — nên môi trường loopback ở ~10 Gbps **không đủ ổn định để phân giải câu hỏi này**.
+
+Cái có thể khẳng định: trên Chrome số luồng download không đổi (quirks vốn đã đặt 5), và lưu lượng thêm vào là ~90 request rỗng trong 24 giây, không đáng kể so với hàng GB dữ liệu đo.
+
+Cái chưa khẳng định được: ảnh hưởng trên một đường truyền thật, tốc độ vừa phải. Cần A/B trên hạ tầng Unitel thật — **cùng điều kiện tiên quyết với việc hiệu chuẩn `overheadCompensationFactor`** (xem [overhead-calibration.md](overhead-calibration.md)). Làm hai việc này trong cùng một đợt khi có server thật.
 
 ## 5. Danh sách test point
 

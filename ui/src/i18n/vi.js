@@ -53,6 +53,17 @@ export default {
   "result.testId": "Mã kết quả",
   "result.testIdHint": "Đưa mã này cho bộ phận vận hành mạng để tra đúng lần đo này",
 
+  "loaded.title": "Độ trễ khi có tải",
+  "loaded.explain": "Mức độ trễ mà đường truyền cộng thêm khi đang bận. Tăng nhiều thì gọi thoại và họp video sẽ vỡ tiếng dù tốc độ nhìn vẫn đẹp.",
+  "loaded.download": "Khi tải xuống",
+  "loaded.upload": "Khi tải lên",
+  "loaded.idle": "Lúc rảnh",
+  "loaded.worst": "cao nhất {value} ms",
+  "loaded.increase": "+{value} ms",
+  "loaded.loss": "Thăm dò thất bại",
+  "loaded.lossSamples": "{count} lần thăm dò",
+  "loaded.lossCaveat": "Tỷ lệ gói thăm dò thất bại hoặc quá hạn. TCP che được mất gói nhẹ, nên số cao là dấu hiệu có vấn đề thật, còn số 0 không chứng minh đường truyền sạch.",
+
   "result.summary":
     "Tải xuống {download} Mbps, tải lên {upload} Mbps, độ trễ {ping} mili giây",
 

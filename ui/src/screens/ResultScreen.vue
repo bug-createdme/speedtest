@@ -40,6 +40,34 @@ const serverName = computed(() => {
   Showing a row of zeroes would read as "0ms, excellent" rather than "not
   measured", so the whole block is dropped instead.
 */
+/*
+  Latency added by load, per phase.
+
+  Both sides of the subtraction are averages on purpose. `test.ping` is the
+  minimum of the idle samples, which is the right way to report an idle link
+  but the wrong baseline here: subtracting a minimum from an average would
+  book part of the difference between the two statistics as bufferbloat.
+*/
+function increase(loaded) {
+  if (!(loaded > 0) || !(test.idlePingAvg > 0)) return 0;
+  const delta = loaded - test.idlePingAvg;
+  return delta > 0 ? delta : 0;
+}
+
+/*
+  Severity bands for the increase, in milliseconds. These follow the grading
+  in common use for bufferbloat tests rather than any Unitel-defined SLA - if
+  operations has its own thresholds, this is the one place to change them.
+*/
+function severity(loaded) {
+  const delta = increase(loaded);
+  if (delta >= 100) return 'bad';
+  if (delta >= 30) return 'warn';
+  return 'ok';
+}
+
+const hasLoadedLatency = computed(() => test.probeCount > 0);
+
 const timings = computed(() =>
   [
     { key: "DNS", value: test.dns },
@@ -91,6 +119,52 @@ const timings = computed(() =>
         :unit="t('unit.ms')"
       />
     </div>
+
+    <section v-if="hasLoadedLatency" class="loaded card">
+      <h3 class="loaded-title">{{ t('loaded.title') }}</h3>
+      <p class="loaded-explain">{{ t('loaded.explain') }}</p>
+
+      <div class="loaded-row">
+        <span class="loaded-label">{{ t('loaded.idle') }}</span>
+        <span class="loaded-value">{{ fmt(test.idlePingAvg, 0) }} {{ t('unit.ms') }}</span>
+        <span class="loaded-extra"></span>
+      </div>
+
+      <div v-if="test.dlPing > 0" class="loaded-row">
+        <span class="loaded-label">{{ t('loaded.download') }}</span>
+        <span class="loaded-value">
+          {{ fmt(test.dlPing, 0) }} {{ t('unit.ms') }}
+          <em class="delta" :class="'delta-' + severity(test.dlPing)">
+            {{ t('loaded.increase', { value: fmt(increase(test.dlPing), 0) }) }}
+          </em>
+        </span>
+        <span class="loaded-extra">{{ t('loaded.worst', { value: fmt(test.dlPingMax, 0) }) }}</span>
+      </div>
+
+      <div v-if="test.ulPing > 0" class="loaded-row">
+        <span class="loaded-label">{{ t('loaded.upload') }}</span>
+        <span class="loaded-value">
+          {{ fmt(test.ulPing, 0) }} {{ t('unit.ms') }}
+          <em class="delta" :class="'delta-' + severity(test.ulPing)">
+            {{ t('loaded.increase', { value: fmt(increase(test.ulPing), 0) }) }}
+          </em>
+        </span>
+        <span class="loaded-extra">{{ t('loaded.worst', { value: fmt(test.ulPingMax, 0) }) }}</span>
+      </div>
+
+      <div class="loaded-row">
+        <span class="loaded-label">{{ t('loaded.loss') }}</span>
+        <span class="loaded-value">{{ fmt(test.packetLoss, 2) }} {{ t('unit.percent') }}</span>
+        <!--
+          The sample count is shown, not hidden: a 0.00% drawn from 40 probes is
+          a much weaker statement than the number alone suggests, and this is a
+          figure operations will act on.
+        -->
+        <span class="loaded-extra">{{ t('loaded.lossSamples', { count: test.probeCount }) }}</span>
+      </div>
+
+      <p class="loaded-caveat">{{ t('loaded.lossCaveat') }}</p>
+    </section>
 
     <dl class="details card">
       <div class="detail">
@@ -144,6 +218,80 @@ const timings = computed(() =>
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--sp-3);
+}
+
+.loaded {
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.loaded-title {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+}
+
+.loaded-explain,
+.loaded-caveat {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.loaded-caveat {
+  margin-top: var(--sp-2);
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-2);
+}
+
+.loaded-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--sp-1) var(--sp-3);
+}
+
+.loaded-label {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+.loaded-value {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-semibold);
+  text-align: right;
+}
+
+.loaded-extra {
+  grid-column: 2;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.delta {
+  font-style: normal;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  margin-left: var(--sp-2);
+  padding: 0 var(--sp-2);
+  border-radius: var(--radius-pill);
+}
+
+.delta-ok {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.delta-warn {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+}
+
+.delta-bad {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
 }
 
 .details {
