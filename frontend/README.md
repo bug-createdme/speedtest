@@ -16,7 +16,13 @@ page fetches them relative to itself:
 
 - `../server-list.json` contains the default server list used by the modern UI.
 - `../settings.json` overrides selected `speedtest_worker.js` settings.
-- `index.html` and `../index-modern.html` show how the frontend is wired up.
+- `../index-modern.html` shows how the frontend is wired up.
+
+Note that `javascript/index.js` fetches `settings.json` and the server list with
+paths relative to the *page*, not to this script. It only resolves correctly
+when loaded from a page at the repository root (`../index-modern.html`); a copy
+of this directory's `index.html` living inside `frontend/` itself does not work
+out of the box for that reason, which is why one isn't kept here.
 
 ## Notes
 

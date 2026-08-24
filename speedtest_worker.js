@@ -80,6 +80,54 @@ function url_sep(url) {
 }
 
 /*
+	Resource Timing helpers, used by the ping test.
+
+	The ping test needs the timing of one specific request. Reading the last entry
+	of performance.getEntries() cannot give us that: the buffer holds every request
+	the worker has made, it is capped (250 entries by default) and nothing ever
+	clears it, so once the download and upload streams have filled it the "last
+	entry" is a stale garbage.php entry rather than the ping that just completed.
+	Worse, the caller only accepts the value when it is *lower* than the wall clock
+	estimate, so a stale entry always drags the reported ping down.
+
+	We therefore look the request up by its absolute URL, and keep the buffer clear
+	so that ping entries always fit in it.
+*/
+function absoluteUrl(url) {
+	try {
+		return new URL(url, self.location.href).href;
+	} catch (e) {
+		return url; // no URL constructor (old browsers): the lookup will simply miss
+	}
+}
+function resetResourceTimings() {
+	try {
+		if (typeof performance === "undefined") return;
+		if (performance.setResourceTimingBufferSize) performance.setResourceTimingBufferSize(300);
+		if (performance.clearResourceTimings) performance.clearResourceTimings();
+	} catch (e) {}
+}
+/*
+	Round trip for one absolute URL as measured by the Performance API, or null when
+	it is unavailable, restricted or implausible. Cross origin responses only expose
+	responseStart/requestStart when the server sends Timing-Allow-Origin; without it
+	both read 0 and we fall back to the entry duration.
+*/
+function timingForUrl(url) {
+	try {
+		if (typeof performance === "undefined" || !performance.getEntriesByName) return null;
+		const entries = performance.getEntriesByName(url);
+		if (!entries || entries.length === 0) return null;
+		const p = entries[entries.length - 1];
+		let d = p.responseStart - p.requestStart;
+		if (d <= 0) d = p.duration;
+		return d > 0 ? d : null;
+	} catch (e) {
+		return null;
+	}
+}
+
+/*
 	listener for commands from main thread to this worker.
 	commands:
 	-status: returns the current status as a JSON string containing testState, dlStatus, ulStatus, pingStatus, clientIp, jitterStatus, dlProgress, ulProgress, pingProgress
@@ -249,7 +297,9 @@ this.addEventListener("message", function(e) {
         if (testState >= 4) return;
 		tlog("manually aborted");
 		clearRequests(); // stop all xhr activity
-		runNextTest = null;
+		//runNextTest is block scoped to the start handler, so assigning it here only
+		//ever created an implicit global. The testState check at the top of the chain
+		//and clearRequests() above are what actually stop the run.
 		if (interval) clearInterval(interval); // clear timer if present
 		if (settings.telemetry_level > 1) sendTelemetry(function() {});
 		testState = 5; //set test as aborted
@@ -481,10 +531,10 @@ function ulTest(done) {
 							testStream(i, 0);
 						};
 						xhr[i].open("POST", settings.url_ul + url_sep(settings.url_ul) + (settings.mpot ? "cors=true&" : "") + "r=" + Math.random(), true); // random string to prevent caching
-						try {
-							xhr[i].setRequestHeader("Content-Encoding", "identity"); // disable compression (some browsers may refuse it, but data is incompressible anyway)
-						} catch (e) {}
-						//No Content-Type header in MPOT branch because it triggers bugs in some browsers
+						//No Content-Type header in MPOT branch because it triggers bugs in some browsers.
+						//No Content-Encoding header either: browsers never compress a request body, so
+						//"identity" bought us nothing while making the request non-simple, which costs a
+						//CORS preflight round trip before every single upload chunk.
 						xhr[i].send(reqsmall);
 					} else {
 						// REGULAR version, no workaround
@@ -527,10 +577,10 @@ function ulTest(done) {
 						}.bind(this);
 						// send xhr
 						xhr[i].open("POST", settings.url_ul + url_sep(settings.url_ul) + (settings.mpot ? "cors=true&" : "") + "r=" + Math.random(), true); // random string to prevent caching
-						try {
-							xhr[i].setRequestHeader("Content-Encoding", "identity"); // disable compression (some browsers may refuse it, but data is incompressible anyway)
-						} catch (e) {}
-						//No Content-Type header in MPOT branch because it triggers bugs in some browsers
+						//No Content-Type header in MPOT branch because it triggers bugs in some browsers.
+						//No Content-Encoding header either: browsers never compress a request body, so
+						//"identity" bought us nothing while making the request non-simple, which costs a
+						//CORS preflight round trip before every single upload chunk.
 						xhr[i].send(req);
 					}
 				}.bind(this),
@@ -599,6 +649,8 @@ function pingTest(done) {
 	tverb("pingTest");
 	if (ptCalled) return;
 	else ptCalled = true; // pingTest already called?
+	//the download and upload streams have filled the Resource Timing buffer by now
+	resetResourceTimings();
 	const startT = new Date().getTime(); //when the test was started
 	let prevT = null; // last time a pong was received
 	let ping = 0.0; // current ping value
@@ -610,6 +662,8 @@ function pingTest(done) {
 	const doPing = function() {
 		tverb("ping");
 		pingProgress = i / settings.count_ping;
+		const pingUrl = settings.url_ping + url_sep(settings.url_ping) + (settings.mpot ? "cors=true&" : "") + "r=" + Math.random(); // random string to prevent caching
+		const pingUrlAbs = absoluteUrl(pingUrl);
 		prevT = new Date().getTime();
 		xhr[0] = new XMLHttpRequest();
 		xhr[0].onload = function() {
@@ -620,17 +674,12 @@ function pingTest(done) {
 			} else {
 				let instspd = new Date().getTime() - prevT;
 				if (settings.ping_allowPerformanceApi) {
-					try {
-						//try to get accurate performance timing using performance api
-						let p = performance.getEntries();
-						p = p[p.length - 1];
-						let d = p.responseStart - p.requestStart;
-						if (d <= 0) d = p.duration;
-						if (d > 0 && d < instspd) instspd = d;
-					} catch (e) {
-						//if not possible, keep the estimate
-						tverb("Performance API not supported, using estimate");
-					}
+					//refine the estimate with the timing of THIS request, looked up by URL
+					const d = timingForUrl(pingUrlAbs);
+					if (d === null) tverb("No Performance API entry for this ping, using estimate");
+					else if (d < instspd) instspd = d;
+					//drop the entries we just read so the buffer cannot fill up mid test
+					resetResourceTimings();
 				}
 				//noticed that some browsers randomly have 0ms ping
 				if (instspd < 1) instspd = prevInstspd;
@@ -683,7 +732,7 @@ function pingTest(done) {
 			}
 		}.bind(this);
 		// send xhr
-		xhr[0].open("GET", settings.url_ping + url_sep(settings.url_ping) + (settings.mpot ? "cors=true&" : "") + "r=" + Math.random(), true); // random string to prevent caching
+		xhr[0].open("GET", pingUrl, true);
 		xhr[0].send();
 	}.bind(this);
 	doPing(); // start first ping

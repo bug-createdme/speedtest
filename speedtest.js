@@ -283,8 +283,11 @@ Speedtest.prototype = {
       nextServer();
     }.bind(this);
 
-    //parallel server selection
-    const CONCURRENCY = 6;
+    //parallel server selection. Servers within a group are pinged one after the
+    //other, so the worst case wait before the UI becomes usable is
+    //(serverCount / CONCURRENCY) * PINGS * PING_TIMEOUT. With 6 groups and a long
+    //server list that reached half a minute on a lossy link.
+    const CONCURRENCY = 16;
     let serverLists = [];
     for (let i = 0; i < CONCURRENCY; i++) {
       serverLists[i] = [];
@@ -313,12 +316,30 @@ Speedtest.prototype = {
     }
   },
   /**
+   * Terminates the worker left over from the run that just finished, optionally
+   * after a delay so a pending telemetry request can still complete. Without
+   * this, every call to start() leaked a worker thread for the life of the page.
+   */
+  _disposeWorker: function(delayMs) {
+    const worker = this.worker;
+    if (!worker) return;
+    this.worker = null;
+    const kill = function() {
+      try {
+        worker.terminate();
+      } catch (e) {}
+    };
+    if (delayMs > 0) setTimeout(kill, delayMs);
+    else kill();
+  },
+  /**
    * Starts the test.
    * During the test, the onupdate(data) callback function will be called periodically with data from the worker.
    * At the end of the test, the onend(aborted) function will be called with a boolean telling you if the test was aborted or if it ended normally.
    */
   start: function() {
     if (this._state == 3) throw "Test already running";
+    this._disposeWorker(0); // a previous run may still be holding a worker thread
     this.worker = new Worker("speedtest_worker.js?r=" + Math.random());
     this.worker.onmessage = function(e) {
       if (e.data === this._prevData) return;
@@ -332,6 +353,10 @@ Speedtest.prototype = {
       if (data.testState >= 4) {
         clearInterval(this.updater);
         this._state = 4;
+        // A test that ended normally has already flushed its telemetry, because
+        // testState only becomes 4 inside the telemetry callback. An aborted one
+        // fires telemetry and moves on, so give that request a moment to land.
+        this._disposeWorker(data.testState == 5 ? 1500 : 0);
         try {
           if (this.onend) this.onend(data.testState == 5);
         } catch (e) {
@@ -374,6 +399,6 @@ Speedtest.prototype = {
    */
   abort: function() {
     if (this._state < 3) throw "You cannot abort a test that's not started yet";
-    if (this._state < 4) this.worker.postMessage("abort");
+    if (this._state < 4 && this.worker) this.worker.postMessage("abort");
   }
 };

@@ -17,7 +17,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/librespeed/speedtest.git"
+    "url": "git+https://github.com/bug-createdme/speedtest.git"
   },
   "keywords": [
     "speedtest",
@@ -35,9 +35,9 @@
   "author": "Federico Dossena",
   "license": "LGPL-3.0-or-later",
   "bugs": {
-    "url": "https://github.com/librespeed/speedtest/issues"
+    "url": "https://github.com/bug-createdme/speedtest/issues"
   },
-  "homepage": "https://github.com/librespeed/speedtest#readme",
+  "homepage": "https://github.com/bug-createdme/speedtest#readme",
   "devDependencies": {
     "@playwright/test": "^1.55.0",
     "eslint": "^8.57.0",

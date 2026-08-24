@@ -1,0 +1,14 @@
+# librespeed/speedtest-go, vendored as a git submodule at backend-go/.
+# Verified compatible with our patched speedtest.js/speedtest_worker.js (real
+# cross-origin engine run, HTTP/1.1 confirmed) — see docs/architecture.md §3.
+#
+# Usage:
+#   git submodule update --init backend-go   # first checkout only
+#   docker compose -f docker-compose.backend-go.yml up -d --build
+#   docker compose -f docker-compose.backend-go.yml down
+services:
+  backend-go:
+    build:
+      context: ./backend-go
+    ports:
+      - "8989:8989"

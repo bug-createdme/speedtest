@@ -13,7 +13,7 @@ on:
     # Publish semver tags as releases.
     tags: ["v*.*.*"]
   pull_request:
-    branches: [master]
+    branches: [main]
   release:
     types: [published]
 
@@ -74,7 +74,7 @@ jobs:
 
       # Fetch the ipinfo database file using curl if API key is defined
       - name: Fetch DB from ipinfo.io
-        # IPINFO_APIKEY is set in https://github.com/librespeed/speedtest/settings/secrets/actions
+        # IPINFO_APIKEY is set in this repo's own Settings > Secrets and variables > Actions
         run: |
           if [ -z "${{ secrets.IPINFO_APIKEY }}" ]; then
             echo "Warning: IPINFO_APIKEY is not defined."

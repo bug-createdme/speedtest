@@ -59,9 +59,11 @@ LABEL org.opencontainers.image.source="https://github.com/librespeed/speedtest"
 LABEL org.opencontainers.image.documentation="https://github.com/librespeed/speedtest/blob/master/doc_docker.md"
 LABEL org.opencontainers.image.licenses="LGPL-3.0-or-later"
 
-# Add health check
+# Add health check. favicon.ico is copied unconditionally by entrypoint.sh in
+# every MODE, unlike "/" which 403s in MODE=backend (no index.html is served
+# there by design), which made this check always fail for that mode.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${WEBPORT}/ || exit 1
+    CMD curl -f http://localhost:${WEBPORT}/favicon.ico || exit 1
 
 # Final touches
 EXPOSE ${WEBPORT}

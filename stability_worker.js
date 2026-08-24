@@ -40,6 +40,43 @@ function url_sep(url) {
   return url.match(/\?/) ? "&" : "?";
 }
 
+/*
+  Resource Timing helpers.
+
+  This test pings continuously for its whole duration, so it produces far more
+  entries than the Resource Timing buffer holds (250 by default). Reading the
+  last entry of performance.getEntries() therefore froze on a stale entry once
+  the buffer filled, roughly 250 samples in, and every later sample reused it.
+  We look each request up by its absolute URL and clear the buffer as we go.
+*/
+function absoluteUrl(url) {
+  try {
+    return new URL(url, self.location.href).href;
+  } catch (e) {
+    return url;
+  }
+}
+function resetResourceTimings() {
+  try {
+    if (typeof performance === "undefined") return;
+    if (performance.setResourceTimingBufferSize) performance.setResourceTimingBufferSize(300);
+    if (performance.clearResourceTimings) performance.clearResourceTimings();
+  } catch (e) {}
+}
+function timingForUrl(url) {
+  try {
+    if (typeof performance === "undefined" || !performance.getEntriesByName) return null;
+    const entries = performance.getEntriesByName(url);
+    if (!entries || entries.length === 0) return null;
+    const p = entries[entries.length - 1];
+    let d = p.responseStart - p.requestStart;
+    if (d <= 0) d = p.duration;
+    return d > 0 ? d : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 this.addEventListener("message", function (e) {
   const params = e.data.split(" ");
   if (params[0] === "status") {
@@ -82,6 +119,7 @@ this.addEventListener("message", function (e) {
     }
     // start the stability test
     aborted = false;
+    resetResourceTimings();
     startTime = new Date().getTime();
     testState = 1;
     doPing();
@@ -169,6 +207,9 @@ function doPing() {
     return;
   }
 
+  const pingUrl =
+    settings.url_ping + url_sep(settings.url_ping) + (settings.mpot ? "cors=true&" : "") + "r=" + Math.random();
+  const pingUrlAbs = absoluteUrl(pingUrl);
   const prevT = new Date().getTime();
   xhr = new XMLHttpRequest();
   xhr.onload = function () {
@@ -177,15 +218,10 @@ function doPing() {
     let instspd = now - prevT;
 
     if (settings.ping_allowPerformanceApi) {
-      try {
-        let p = performance.getEntries();
-        p = p[p.length - 1];
-        let d = p.responseStart - p.requestStart;
-        if (d <= 0) d = p.duration;
-        if (d > 0 && d < instspd) instspd = d;
-      } catch (e) {
-        // Performance API not available, use estimate
-      }
+      const d = timingForUrl(pingUrlAbs);
+      if (d !== null && d < instspd) instspd = d;
+      // drop what we just read so the buffer cannot fill up over a long test
+      resetResourceTimings();
     }
 
     recordPing(instspd);
@@ -197,11 +233,7 @@ function doPing() {
     schedulePing(0);
   };
   xhr.ontimeout = xhr.onerror;
-  xhr.open(
-    "GET",
-    settings.url_ping + url_sep(settings.url_ping) + (settings.mpot ? "cors=true&" : "") + "r=" + Math.random(),
-    true
-  );
+  xhr.open("GET", pingUrl, true);
   try {
     xhr.timeout = settings.ping_timeout;
   } catch (e) {}
