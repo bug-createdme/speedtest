@@ -17,6 +17,7 @@ export default {
   "action.exportCsv": "Xuất CSV",
   "action.clearHistory": "Xoá lịch sử",
   "action.change": "Đổi",
+  "action.logout": "Đăng xuất",
 
   "stage.ping": "Độ trễ",
   "stage.download": "Tải xuống",
@@ -84,8 +85,10 @@ export default {
   "history.confirmClear": "Xoá toàn bộ kết quả đã lưu?",
   "history.slow": "chậm",
 
+  "logout.confirm":
+    "Đăng xuất? Các kết quả đã lưu trên thiết bị này sẽ bị xoá.",
+
   "a11y.gauge": "Tốc độ hiện tại: {value} megabit mỗi giây",
   "a11y.progress": "Tiến trình đo",
-  "a11y.langSwitch": "Ngôn ngữ",
-  "a11y.themeSwitch": "Đổi giao diện sáng/tối"
+  "a11y.langSwitch": "Ngôn ngữ"
 };

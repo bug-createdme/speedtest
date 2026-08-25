@@ -34,38 +34,20 @@ export function goBack() {
   screen.value = previousScreen.value;
 }
 
-const THEME_KEY = "unitel-speedtest.theme";
-/* null = follow the system setting, which is the default. */
-export const theme = ref(null);
+/*
+  There is no theme switch any more.
 
-export function loadTheme() {
-  try {
-    const saved = localStorage.getItem(THEME_KEY);
-    if (saved === "light" || saved === "dark") applyTheme(saved);
-  } catch (e) {
-    // Storage unavailable: the system setting still applies.
-  }
-}
+  The app is dark only (src/styles/tokens.css §2), so the ref, the two setters
+  and the localStorage key that used to live here had nothing left to choose
+  between. They are deleted rather than left exported and inert: an
+  applyTheme("light") that silently does nothing is worse than no function at
+  all. If a light palette ever comes back, it comes back in tokens.css first
+  and this is the file that regains a switch.
 
-export function applyTheme(next) {
-  theme.value = next;
-  if (next) document.documentElement.setAttribute("data-theme", next);
-  else document.documentElement.removeAttribute("data-theme");
-  try {
-    if (next) localStorage.setItem(THEME_KEY, next);
-    else localStorage.removeItem(THEME_KEY);
-  } catch (e) {
-    // Not remembering the choice is acceptable; the toggle still works.
-  }
-}
-
-export function toggleTheme() {
-  const systemDark =
-    typeof matchMedia === "function" &&
-    matchMedia("(prefers-color-scheme: dark)").matches;
-  const current = theme.value || (systemDark ? "dark" : "light");
-  applyTheme(current === "dark" ? "light" : "dark");
-}
+  Devices that stored "unitel-speedtest.theme" under the old build keep an
+  orphan key. Harmless, and cheaper than shipping a migration for a preference
+  that no longer exists.
+*/
 
 /*
   Connection type, when the platform will say. navigator.connection is Chromium

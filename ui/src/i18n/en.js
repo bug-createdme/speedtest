@@ -23,6 +23,7 @@ export default {
   "action.exportCsv": "Export CSV",
   "action.clearHistory": "Clear history",
   "action.change": "Change",
+  "action.logout": "Log out",
 
   "stage.ping": "Ping",
   "stage.download": "Download",
@@ -90,8 +91,10 @@ export default {
   "history.confirmClear": "Delete all saved results?",
   "history.slow": "slow",
 
+  "logout.confirm":
+    "Log out? The results saved on this device will be deleted.",
+
   "a11y.gauge": "Current speed: {value} megabits per second",
   "a11y.progress": "Test progress",
-  "a11y.langSwitch": "Language",
-  "a11y.themeSwitch": "Switch theme"
+  "a11y.langSwitch": "Language"
 };

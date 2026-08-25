@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from "vue";
+import StartButton from "../components/StartButton.vue";
 import { useI18n } from "../i18n/index.js";
 import { test } from "../state/test.js";
 import { SCREEN, connectionType, goTo } from "../state/ui.js";
@@ -14,22 +15,61 @@ const serverName = computed(() => {
 });
 
 const hasChoice = computed(() => test.servers.length > 1);
+
+const facts = computed(() =>
+  [
+    { key: "conn", label: t("net.connection"), value: connectionType.value },
+    { key: "ip", label: "IP", value: test.ip },
+    { key: "isp", label: "ISP", value: test.isp }
+  ].filter((fact) => fact.value)
+);
 </script>
 
 <template>
   <section class="initial">
-    <p class="subtitle">{{ t("app.subtitle") }}</p>
+    <div class="instrument">
+      <div class="instrument-body">
+        <!--
+          The ring stack occupies the same square the gauge will fill once the
+          run starts, so pressing Start does not swap the layout out from under
+          the thumb - the circle stays where it was and the arc takes over.
+        -->
+        <StartButton @click="$emit('start')" />
 
-    <button
-      type="button"
-      class="server-pill"
-      :disabled="!hasChoice"
-      @click="goTo(SCREEN.SERVERS)"
-    >
-      <span class="label">{{ t("server.label") }}</span>
-      <span class="server-name">{{ serverName }}</span>
-      <span v-if="hasChoice" class="server-change">{{ t("action.change") }}</span>
-    </button>
+        <p class="tagline">{{ t("app.subtitle") }}</p>
+      </div>
+
+      <!--
+        Server choice sits inside the hero because it changes what the numbers
+        mean. Pushed to the bottom edge, it reads as a setting on the
+        instrument rather than as another thing to decide before starting.
+      -->
+      <button
+        type="button"
+        class="server-pill"
+        :disabled="!hasChoice"
+        @click="goTo(SCREEN.SERVERS)"
+      >
+        <span class="label">{{ t("server.label") }}</span>
+        <span class="server-name">{{ serverName }}</span>
+        <svg
+          v-if="hasChoice"
+          class="server-chevron"
+          viewBox="0 0 16 16"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path
+            d="m6 3.5 4.5 4.5L6 12.5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+    </div>
 
     <!--
       The Start button is never disabled.
@@ -39,33 +79,22 @@ const hasChoice = computed(() => test.servers.length > 1);
       runs in the background here; pressing Start before it finishes uses the
       first server in the list and lets the pick settle behind the scenes.
     -->
-    <button type="button" class="btn btn-primary btn-start" @click="$emit('start')">
-      {{ t("action.start") }}
-    </button>
-
     <p v-if="test.selection.running" class="selection-note" role="status">
+      <span class="spinner" aria-hidden="true"></span>
       {{ t("status.findingServers") }}
       <span v-if="test.selection.total">
         — {{ t("status.serversChecked", { done: test.selection.done, total: test.selection.total }) }}
       </span>
     </p>
 
-    <dl class="facts">
-      <div v-if="connectionType" class="fact">
-        <dt class="label">{{ t("net.connection") }}</dt>
-        <dd>{{ connectionType }}</dd>
-      </div>
-      <div v-if="test.ip" class="fact">
-        <dt class="label">IP</dt>
-        <dd>{{ test.ip }}</dd>
-      </div>
-      <div v-if="test.isp" class="fact">
-        <dt class="label">ISP</dt>
-        <dd>{{ test.isp }}</dd>
+    <dl v-if="facts.length" class="facts">
+      <div v-for="fact in facts" :key="fact.key" class="fact chip">
+        <dt class="fact-label">{{ fact.label }}</dt>
+        <dd class="fact-value">{{ fact.value }}</dd>
       </div>
     </dl>
 
-    <button type="button" class="btn btn-ghost" @click="goTo(SCREEN.HISTORY)">
+    <button type="button" class="btn btn-quiet history-link" @click="goTo(SCREEN.HISTORY)">
       {{ t("action.history") }}
     </button>
   </section>
@@ -76,28 +105,35 @@ const hasChoice = computed(() => test.servers.length > 1);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--sp-5);
+  gap: var(--sp-4);
   flex: 1;
   justify-content: center;
   text-align: center;
+  width: 100%;
 }
 
-.subtitle {
+.instrument {
+  width: 100%;
+}
+
+.tagline {
   color: var(--text-secondary);
-  font-size: var(--fs-lg);
+  font-size: var(--fs-md);
 }
 
 .server-pill {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
+  width: 100%;
   min-height: var(--tap-min);
   padding: var(--sp-2) var(--sp-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--surface);
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
   cursor: pointer;
-  max-width: 100%;
+  text-align: start;
 }
 
 .server-pill:disabled {
@@ -105,48 +141,84 @@ const hasChoice = computed(() => test.servers.length > 1);
 }
 
 .server-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: end;
 }
 
-.server-change {
+.server-chevron {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
   color: var(--brand-primary);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-semibold);
-}
-
-.btn-start {
-  width: 100%;
-  max-width: 16rem;
-  min-height: 3.5rem;
-  font-size: var(--fs-xl);
 }
 
 .selection-note {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
   color: var(--text-muted);
   font-size: var(--fs-sm);
   margin: 0;
+}
+
+.spinner {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--brand-primary);
+  flex: none;
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 3s;
+  }
 }
 
 .facts {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: var(--sp-5);
+  gap: var(--sp-2);
   margin: 0;
 }
 
 .fact {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
+  gap: var(--sp-2);
 }
 
-.fact dd {
+.fact-label {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.fact-value {
   margin: 0;
   font-size: var(--fs-sm);
-  color: var(--text-secondary);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-link {
+  margin-top: calc(var(--sp-1) * -1);
 }
 </style>

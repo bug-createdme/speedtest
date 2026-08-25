@@ -43,11 +43,52 @@ to remove vue-router after the fact. Navigation is a `screen` ref in
 
 ## Open items that need input, not code
 
-**The brand is a placeholder.** Unitel's palette, logo and typeface have not
-been supplied. Everything brand-specific is six custom properties at the top of
-`src/styles/tokens.css` plus the wordmark in `src/components/BrandMark.vue`.
-The stand-in values are neutral and meet WCAG AA against the surfaces around
-them; they are not a guess at Unitel's colours.
+**The brand comes from Unitel's live site, not from a brand manual.** The
+palette in `src/styles/tokens.css` §1 and the wordmark in
+`src/components/BrandMark.vue` were taken from unitel.com.la:
+
+| Value | Where it came from |
+| --- | --- |
+| `#f26522` primary orange | `themes/unitel/css/main.css`, its most-used colour |
+| `#f9a03f` / `#f58a21` light orange | same file, the pairing used in gradients |
+| `#08559f` secondary blue | same file |
+| the `unitel` wordmark | `themes/unitel/images/logo_mobile.svg`, fill `#f06022` |
+
+That is a reproduction from public assets, and a live site drifts from a
+guideline. Ask Unitel's design team for the official palette, the approved
+logo files (including a mono lockup for dark surfaces) and the brand typeface,
+and reconcile them against those two files - nothing else in the app names a
+colour.
+
+One constraint worth carrying into that conversation: **`#f26522` is 3.1:1 on
+white and 5.7:1 on this app's background.** On white it clears AA for large
+text and graphics only; here it clears it for everything. That is one of the
+reasons the app is dark - see below - and it is the reason a light rebuild
+would be a real piece of work rather than a token swap: on white, orange would
+have to go back to fills and headlines, with `--brand-ink` doing the small
+text. If the official guideline requires the primary orange as small text on
+white, that is a conflict with WCAG 2.1 AA, not something a stylesheet can
+quietly resolve.
+
+## The app is dark only
+
+There is no light palette, no theme toggle and no `prefers-color-scheme`
+branch. A handset in light mode gets this UI anyway. That was an explicit
+product decision, and three things follow from it:
+
+- **The page is the instrument.** There used to be a dark panel floating on a
+  light page; the panel's colour moved onto the page and the panel itself was
+  deleted. It is how every speed test people recognise renders one, and a
+  full-white screen is the harder thing to read on a phone held outdoors.
+- **The palette stopped having exceptions.** `#f26522`, `#ff6b6b`, `#3ddc9a`
+  and the rest all clear AA as body text against `--bg`. None of them did
+  against white.
+- **One palette instead of three** (light, dark, panel) means one place a
+  colour regression can come from.
+
+`src/state/ui.js` no longer exports `applyTheme`/`toggleTheme`; they were
+deleted rather than left inert. A light palette coming back starts in
+`tokens.css`, and that file is the only place it would have to start.
 
 **The Lao translation is an unreviewed draft.** Lao is the primary market
 language, and `src/i18n/lo.js` was drafted without a Lao speaker checking it.

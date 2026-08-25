@@ -22,12 +22,10 @@ import {
   connectionType,
   detectConnection,
   goTo,
-  loadTheme,
   screen
 } from "./state/ui.js";
 
 onMounted(() => {
-  loadTheme();
   loadHistory();
   detectConnection();
   initEngine();

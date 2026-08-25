@@ -24,6 +24,20 @@ function fmtTiming(value) {
   return v < 10 ? v.toFixed(1) : v.toFixed(0);
 }
 
+/*
+  Same digit budget as the gauge: hundredths below 10 Mbps, tenths up to a
+  gigabit, whole numbers above it. A four-digit number with a decimal is what
+  broke the old readout's layout, and the tenth of a Mbps it bought was never
+  a real difference at that speed.
+*/
+function fmtSpeed(value) {
+  const v = Number(value || 0);
+  if (!(v > 0)) return "0.00";
+  if (v < 10) return v.toFixed(2);
+  if (v < 1000) return v.toFixed(1);
+  return v.toFixed(0);
+}
+
 /* usedServer, not selectedServer: see state/test.js - Start may fire before
    server selection has settled, and the result must name the server the
    numbers actually came from. */
@@ -76,6 +90,23 @@ const timings = computed(() =>
     { key: "TTFB", value: test.ttfb }
   ].filter((row) => row.value > 0)
 );
+
+const details = computed(() =>
+  [
+    { key: "server", label: t("server.label"), value: serverName.value },
+    { key: "conn", label: t("net.connection"), value: connectionType.value },
+    { key: "ip", label: "IP", value: test.ip },
+    { key: "isp", label: "ISP", value: test.isp }
+  ]
+    .filter((row) => row.value)
+    .concat(
+      timings.value.map((row) => ({
+        key: row.key,
+        label: row.key,
+        value: fmtTiming(row.value) + " " + t("unit.ms")
+      }))
+    )
+);
 </script>
 
 <template>
@@ -88,23 +119,71 @@ const timings = computed(() =>
       }) }}
     </p>
 
-    <div class="grid-2">
-      <MetricCard
-        :label="t('metric.download')"
-        :value="fmt(test.download, 1)"
-        :unit="t('unit.mbps')"
-        variant="download"
-      >
-        <SparkLine :points="test.dlSamples" variant="download" />
-      </MetricCard>
-      <MetricCard
-        :label="t('metric.upload')"
-        :value="fmt(test.upload, 1)"
-        :unit="t('unit.mbps')"
-        variant="upload"
-      >
-        <SparkLine :points="test.ulSamples" variant="upload" />
-      </MetricCard>
+    <!--
+      The answer, on the instrument panel the run was watched on.
+
+      Both figures at once and at the same size: the old screen opened with two
+      equal white cards in a grid, which said nothing about which number the
+      user came for, and buried the server the numbers belong to eight rows
+      further down.
+    -->
+    <div class="instrument">
+      <div class="result-head">
+        <span class="done-badge">
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path
+              d="M3.5 8.5 6.5 11.5 12.5 5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          {{ t("status.done") }}
+        </span>
+        <span class="result-server">{{ serverName }}</span>
+      </div>
+
+      <div class="readouts">
+        <div class="readout readout-download">
+          <span class="readout-label">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path
+                d="M8 3v9m0 0 4-4m-4 4-4-4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            {{ t("metric.download") }}
+          </span>
+          <span class="readout-value">{{ fmtSpeed(test.download) }}</span>
+          <span class="readout-unit">{{ t("unit.mbps") }}</span>
+          <SparkLine :points="test.dlSamples" variant="download" />
+        </div>
+
+        <div class="readout readout-upload">
+          <span class="readout-label">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path
+                d="M8 13V4m0 0 4 4M8 4 4 8"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            {{ t("metric.upload") }}
+          </span>
+          <span class="readout-value">{{ fmtSpeed(test.upload) }}</span>
+          <span class="readout-unit">{{ t("unit.mbps") }}</span>
+          <SparkLine :points="test.ulSamples" variant="upload" />
+        </div>
+      </div>
     </div>
 
     <div class="grid-2">
@@ -121,7 +200,7 @@ const timings = computed(() =>
     </div>
 
     <section v-if="hasLoadedLatency" class="loaded card">
-      <h3 class="loaded-title">{{ t('loaded.title') }}</h3>
+      <h3 class="section-title">{{ t('loaded.title') }}</h3>
       <p class="loaded-explain">{{ t('loaded.explain') }}</p>
 
       <div class="loaded-row">
@@ -167,27 +246,11 @@ const timings = computed(() =>
     </section>
 
     <dl class="details card">
-      <div class="detail">
-        <dt class="label">{{ t("server.label") }}</dt>
-        <dd>{{ serverName }}</dd>
+      <div v-for="row in details" :key="row.key" class="detail">
+        <dt class="label">{{ row.label }}</dt>
+        <dd>{{ row.value }}</dd>
       </div>
-      <div v-if="connectionType" class="detail">
-        <dt class="label">{{ t("net.connection") }}</dt>
-        <dd>{{ connectionType }}</dd>
-      </div>
-      <div v-if="test.ip" class="detail">
-        <dt class="label">IP</dt>
-        <dd>{{ test.ip }}</dd>
-      </div>
-      <div v-if="test.isp" class="detail">
-        <dt class="label">ISP</dt>
-        <dd>{{ test.isp }}</dd>
-      </div>
-      <div v-for="row in timings" :key="row.key" class="detail">
-        <dt class="label">{{ row.key }}</dt>
-        <dd>{{ fmtTiming(row.value) }} {{ t("unit.ms") }}</dd>
-      </div>
-      <div v-if="test.testId" class="detail">
+      <div v-if="test.testId" class="detail detail-id">
         <dt class="label">{{ t("result.testId") }}</dt>
         <dd><code class="test-id">{{ test.testId }}</code></dd>
       </div>
@@ -214,6 +277,100 @@ const timings = computed(() =>
   width: 100%;
 }
 
+.result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.done-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--success);
+  flex: none;
+}
+
+.done-badge svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.result-server {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.readouts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.readout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-4);
+  min-width: 0;
+}
+
+/* A hairline between the two, rather than a gap: they are one reading of one
+   link, not two unrelated cards. */
+.readout-upload {
+  border-left: 1px solid var(--border);
+}
+
+.readout-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.readout-label svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: none;
+}
+
+.readout-download .readout-label {
+  color: var(--gauge-download-from);
+}
+
+.readout-upload .readout-label {
+  color: var(--gauge-upload-from);
+}
+
+.readout-value {
+  font-family: var(--font-numeric);
+  font-size: clamp(2rem, 11vw, 2.75rem);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+
+.readout-unit {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 .grid-2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -225,11 +382,6 @@ const timings = computed(() =>
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-}
-
-.loaded-title {
-  font-size: var(--fs-md);
-  font-weight: var(--fw-semibold);
 }
 
 .loaded-explain,
@@ -281,17 +433,17 @@ const timings = computed(() =>
 
 .delta-ok {
   color: var(--success);
-  background: color-mix(in srgb, var(--success) 12%, transparent);
+  background: var(--success-tint);
 }
 
 .delta-warn {
   color: var(--warning);
-  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  background: var(--warning-tint);
 }
 
 .delta-bad {
   color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  background: var(--danger-bg);
 }
 
 .details {
@@ -315,6 +467,11 @@ const timings = computed(() =>
   color: var(--text-secondary);
   text-align: right;
   overflow-wrap: anywhere;
+}
+
+.detail-id {
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-3);
 }
 
 .test-id {

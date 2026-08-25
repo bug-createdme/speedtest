@@ -3,128 +3,160 @@
   =================================
 
   Everything visual in this app resolves to a token declared here. No component
-  writes a raw colour, radius or duration. That is what makes the brand swap
-  below a one-file edit instead of a hunt through the codebase.
+  writes a raw colour, radius or duration. That is what makes a brand change a
+  one-file edit instead of a hunt through the codebase.
 
   NO NATIVE CSS NESTING ANYWHERE IN THIS PROJECT. docs/analysis-phase1.md §11
   found the previous "modern" UI breaks outright on WebView < 112, which is
   still in the field on the Android devices this has to run on. A nested rule
   does not degrade - the whole block is dropped.
+
+  THIS APP IS DARK ONLY. There is no light palette and no `prefers-color-scheme`
+  branch: the page itself is the instrument, the way every speed test people
+  recognise renders one. A handset in light mode still gets this. §2 has the
+  full reasoning, because it is the decision the rest of the file hangs off.
 */
 
 /* ==========================================================================
-   1. BRAND — PLACEHOLDER, NOT UNITEL'S REAL IDENTITY YET
+   1. BRAND — Unitel
    --------------------------------------------------------------------------
-   These six values are the entire brand surface. Unitel's official palette,
-   logo and typeface have not been provided to this project (docs/architecture.md
-   §9), so what is here is a neutral, accessible stand-in chosen to hit WCAG AA
-   against the surfaces below - NOT a guess at Unitel's colours.
+   Sourced from Unitel's own public assets rather than invented:
 
-   To rebrand: replace these six declarations (and swap the logo in
-   ui/src/components/BrandMark.vue). Nothing else should need to change.
+     #f06022  themes/unitel/images/logo_mobile.svg  (the wordmark fill)
+     #f26522  themes/unitel/css/main.css            (dominant UI orange)
+     #f58a21  themes/unitel/css/main.css            (lighter orange, pairings)
+     #08559f  themes/unitel/css/main.css            (secondary blue)
+
+   unitel.com.la is a live site, not a brand manual. If Unitel's design team
+   supplies the official guideline, these declarations are the whole surface to
+   reconcile - plus the wordmark in ui/src/components/BrandMark.vue.
+
+   Contrast: #f26522 is 3.1:1 on white and 5.7:1 on the background below. Going
+   dark-only is what makes the brand orange usable as text at any size, which
+   the previous light theme could not do - there, orange had to be reserved for
+   large text and fills. That is a real gain, not a side effect.
    ========================================================================== */
 :root {
-  --brand-primary: #0b6fd4;
-  --brand-primary-strong: #0956a6;
+  --brand-primary: #f26522;
+  --brand-primary-strong: #d4500f;
+  --brand-primary-light: #f9a03f;
+  /* Small orange text. Was a darkened orange for white backgrounds; on this
+     background it can be a lifted one instead, at 7.7:1. */
+  --brand-ink: #ff8a4c;
   --brand-on-primary: #ffffff;
-  --brand-download: #17a2f3;
-  --brand-upload: #7c5cf0;
-  --brand-ring: rgba(11, 111, 212, 0.35);
+  /* Unitel's secondary. --brand-upload is a lifted version of it: #08559f is
+     only 1.5:1 here, unreadable as a data accent on a dark field. */
+  --brand-secondary: #08559f;
+
+  --brand-download: #f26522;
+  --brand-upload: #4aa8ee;
+
+  --brand-ring: rgba(249, 160, 63, 0.34);
+  --brand-tint: rgba(242, 101, 34, 0.14);
+  --brand-gradient: linear-gradient(
+    120deg,
+    var(--brand-primary-light) 0%,
+    var(--brand-primary) 52%,
+    var(--brand-primary-strong) 100%
+  );
 }
 
 /* ==========================================================================
-   2. SEMANTIC COLOUR — light theme is the default
+   2. SURFACE — one palette, dark
+   --------------------------------------------------------------------------
+   There was a light theme and a dark instrument panel floating on top of it.
+   Both are gone: the panel's colour moved onto the page, and the panel itself
+   stopped existing. Three things came out of that, in order of weight:
+
+   1. The screen reads as an instrument rather than a form. That is how Ookla,
+      Fast and Cloudflare all render a speed test, and the phone is often held
+      outdoors where a full-white screen is the harder thing to read.
+   2. The brand orange works everywhere. At 3.1:1 on white it was barred from
+      body text; at 5.7:1 here it is not. So is #ff6b6b, #3ddc9a and every
+      other accent below - the whole palette stopped having exceptions.
+   3. One palette instead of three (light, dark, panel) means one place a
+      colour regression can come from.
+
+   The cost, stated plainly: a user whose handset is in light mode gets this
+   anyway. That was the explicit product call.
    ========================================================================== */
 :root {
-  --bg: #f4f6fa;
-  --surface: #ffffff;
-  --surface-raised: #ffffff;
-  --surface-sunken: #eef1f7;
-  --border: #d8dee9;
-  --border-strong: #b9c3d3;
+  color-scheme: dark;
 
-  --text: #10151f;
-  --text-secondary: #4a5568;
-  --text-muted: #6b7688;
+  --bg: #12141a;
+  /* A warm bloom at the top of the page - the only thing left of the panel,
+     and what keeps a flat near-black from reading as "stylesheet failed to
+     load". Sized in pixels, not percentages: on a long result page a
+     percentage-sized gradient would stretch down the whole document. */
+  --bg-glow: rgba(242, 101, 34, 0.16);
+
+  --surface: #1b1f27;
+  --surface-raised: #232833;
+  --surface-sunken: #0d0f14;
+  /* Hover on a dark UI lifts rather than darkens; a fixed colour cannot do
+     that on top of three different surfaces, so this is an overlay. */
+  --surface-hover: rgba(255, 255, 255, 0.06);
+  /* The groove behind a gauge arc or a progress bar. Translucent so it reads
+     the same on the page and on a card. */
+  --track: rgba(255, 255, 255, 0.08);
+
+  --border: #2b313d;
+  --border-strong: #3d4553;
+
+  --text: #f4f6fa;
+  --text-secondary: #b6bfcd;
+  --text-muted: #8a95a5;
   --text-on-accent: #ffffff;
 
-  --success: #147d52;
-  --warning: #9a6200;
-  --danger: #c02626;
-  --danger-bg: #fdeaea;
-
-  --shadow-sm: 0 1px 2px rgba(16, 21, 31, 0.06);
-  --shadow-md: 0 4px 16px rgba(16, 21, 31, 0.08);
-  --shadow-lg: 0 12px 32px rgba(16, 21, 31, 0.12);
-}
-
-/*
-  Dark theme. Kept to token redefinition only - no component ever branches on
-  the theme, so there is exactly one place a dark-mode regression can come from.
-  data-theme wins over the system setting so an explicit choice sticks.
-*/
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0c1018;
-    --surface: #151b26;
-    --surface-raised: #1c2430;
-    --surface-sunken: #10151e;
-    --border: #2a3444;
-    --border-strong: #3b4859;
-
-    --text: #f2f5fa;
-    --text-secondary: #b3bece;
-    --text-muted: #8794a6;
-
-    --success: #3ddc9a;
-    --warning: #f2b544;
-    --danger: #ff6b6b;
-    --danger-bg: #2c1618;
-
-    --brand-primary: #3d9bff;
-    --brand-primary-strong: #6fb6ff;
-    --brand-on-primary: #06172b;
-    --brand-download: #4fc3ff;
-    --brand-upload: #a78bfa;
-    --brand-ring: rgba(61, 155, 255, 0.4);
-
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
-    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
-  }
-}
-
-:root[data-theme="dark"] {
-  --bg: #0c1018;
-  --surface: #151b26;
-  --surface-raised: #1c2430;
-  --surface-sunken: #10151e;
-  --border: #2a3444;
-  --border-strong: #3b4859;
-
-  --text: #f2f5fa;
-  --text-secondary: #b3bece;
-  --text-muted: #8794a6;
-
   --success: #3ddc9a;
+  --success-tint: rgba(61, 220, 154, 0.12);
   --warning: #f2b544;
+  --warning-tint: rgba(242, 181, 68, 0.14);
+  /* Danger as text or an icon on this background: 6.5:1. */
   --danger: #ff6b6b;
-  --danger-bg: #2c1618;
-
-  --brand-primary: #3d9bff;
-  --brand-primary-strong: #6fb6ff;
-  --brand-on-primary: #06172b;
-  --brand-download: #4fc3ff;
-  --brand-upload: #a78bfa;
-  --brand-ring: rgba(61, 155, 255, 0.4);
+  /* Danger as a button fill under white text. --danger itself gives 2.8:1
+     there, which fails at any size - a filled destructive button needs its own
+     darker value, and this one is 5.5:1. */
+  --danger-solid: #c53030;
+  --danger-bg: rgba(255, 107, 107, 0.12);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.55);
+  --shadow-brand: 0 10px 26px rgba(0, 0, 0, 0.5);
 }
 
 /* ==========================================================================
-   3. TYPOGRAPHY
+   3. THE INSTRUMENT — gauge and Start control
+   ========================================================================== */
+:root {
+  /* Arc gradients. Lighter at the start of the sweep so the arc reads as
+     filling up rather than as a flat band. */
+  --gauge-download-from: #fbb040;
+  --gauge-download-to: #f26522;
+  --gauge-upload-from: #6cc0f7;
+  --gauge-upload-to: #1177d1;
+  --gauge-neutral-from: rgba(255, 255, 255, 0.45);
+  --gauge-neutral-to: rgba(255, 255, 255, 0.2);
+
+  /*
+    The Start control's ring stack, rim to core. One hue ramp rather than seven
+    separate decisions: a whisper of green at the outside resolving into the
+    brand orange at the centre. Only the inner rings - the ones with weight -
+    are Unitel orange; the cooler outer ones sit at low opacity and read as
+    atmosphere, not as a second brand colour.
+  */
+  --start-ring-1: #57b98d;
+  --start-ring-2: #8cbe6e;
+  --start-ring-3: #bcbf55;
+  --start-ring-4: #e0af45;
+  --start-ring-5: #f9a03f;
+  --start-ring-6: #f5811f;
+  --start-ring-7: #f26522;
+}
+
+/* ==========================================================================
+   4. TYPOGRAPHY
    --------------------------------------------------------------------------
    Root font-size is left alone on purpose. The old UI set it to 10px for
    "convenient" rem maths; that halves the effect of the reader's own font-size
@@ -145,23 +177,31 @@
   --fs-lg: 1.125rem;
   --fs-xl: 1.375rem;
   --fs-2xl: 1.75rem;
-  /* The live speed readout. Scales with the viewport but never below a size
-     that stays readable at arm's length on a phone. */
-  --fs-readout: clamp(3rem, 16vw, 5.5rem);
+  --fs-3xl: 2.25rem;
+  /*
+    The live speed readout. The old value (16vw, up to 5.5rem) overflowed the
+    gauge as soon as the number reached four digits - "6642.4" ran straight
+    over the decade labels. The gauge now picks a step per digit count; this is
+    the widest one, sized so three digits plus a decimal still fit inside the
+    ring on a 360px screen.
+  */
+  --fs-readout: clamp(2.75rem, 13vw, 4.25rem);
+  --fs-readout-sm: clamp(2.25rem, 10.5vw, 3.5rem);
 
-  --lh-tight: 1.15;
+  --lh-tight: 1.1;
   --lh-normal: 1.5;
 
   --fw-regular: 400;
   --fw-medium: 500;
   --fw-semibold: 600;
   --fw-bold: 700;
+  --fw-black: 800;
 
   --tracking-wide: 0.06em;
 }
 
 /* ==========================================================================
-   4. SPACING, RADIUS, LAYOUT
+   5. SPACING, RADIUS, LAYOUT
    ========================================================================== */
 :root {
   --sp-1: 0.25rem;
@@ -173,9 +213,10 @@
   --sp-7: 3rem;
   --sp-8: 4rem;
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 26px;
   --radius-pill: 999px;
 
   --content-max: 34rem;
@@ -185,7 +226,7 @@
 }
 
 /* ==========================================================================
-   5. MOTION
+   6. MOTION
    ========================================================================== */
 :root {
   --dur-fast: 120ms;

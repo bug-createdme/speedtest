@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Speed test</title>
-    <meta name="color-scheme" content="light dark" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#12141a" />
     <link rel="icon" href="/favicon.ico" />
 
     <!--
@@ -16,11 +17,11 @@
       shows a white flash or an unstyled block before the CSS lands.
     -->
     <style>
-      :root { color-scheme: light dark; }
-      html, body { margin: 0; background: #f4f6fa; color: #10151f; }
-      @media (prefers-color-scheme: dark) {
-        html, body { background: #0c1018; color: #f2f5fa; }
-      }
+      /* The app is dark only - see src/styles/tokens.css §2. No
+         prefers-color-scheme branch here, because there is nothing to branch
+         to. Kept in step with --bg / --text. */
+      :root { color-scheme: dark; }
+      html, body { margin: 0; background: #12141a; color: #f4f6fa; }
       #app { min-height: 100vh; }
     </style>
 

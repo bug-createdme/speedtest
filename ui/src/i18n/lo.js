@@ -30,6 +30,7 @@ export default {
   "action.exportCsv": "ສົ່ງອອກ CSV",
   "action.clearHistory": "ລຶບປະຫວັດ",
   "action.change": "ປ່ຽນ",
+  "action.logout": "ອອກຈາກລະບົບ",
 
   "stage.ping": "ຄວາມຫນ່ວງ",
   "stage.download": "ດາວໂຫລດ",
@@ -97,8 +98,10 @@ export default {
   "history.confirmClear": "ລຶບຜົນທີ່ບັນທຶກໄວ້ທັງໝົດບໍ່?",
   "history.slow": "ຊ້າ",
 
+  "logout.confirm":
+    "ອອກຈາກລະບົບບໍ່? ຜົນທີ່ບັນທຶກໄວ້ໃນເຄື່ອງນີ້ຈະຖືກລຶບ.",
+
   "a11y.gauge": "ຄວາມໄວປັດຈຸບັນ: {value} ເມກາບິດຕໍ່ວິນາທີ",
   "a11y.progress": "ຄວາມຄືບໜ້າການທົດສອບ",
-  "a11y.langSwitch": "ພາສາ",
-  "a11y.themeSwitch": "ປ່ຽນຮູບແບບສີ"
+  "a11y.langSwitch": "ພາສາ"
 };

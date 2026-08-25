@@ -1,7 +1,7 @@
 /*
   Base layer: font faces, reset, element defaults, and the handful of shared
-  primitives (button, card, focus ring) that would otherwise be copy-pasted
-  into every screen. Flat CSS only - see tokens.css for why.
+  primitives (button, card, chip, popover, focus ring) that would otherwise be
+  copy-pasted into every screen. Flat CSS only - see tokens.css for why.
 */
 
 @font-face {
@@ -32,10 +32,24 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/*
+  The page is the instrument. There is no panel on top of it any more, so the
+  warm bloom that used to sit inside the panel's rounded corner lives here.
+
+  Sized in pixels rather than percentages on purpose: the result screen is
+  several viewports tall, and a percentage-sized radial gradient would stretch
+  its glow down the entire document instead of staying a bloom at the top.
+*/
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image: radial-gradient(
+    680px 340px at 50% -40px,
+    var(--bg-glow) 0%,
+    rgba(242, 101, 34, 0) 70%
+  );
+  background-repeat: no-repeat;
   color: var(--text);
   font-family: var(--font-sans);
   font-size: var(--fs-md);
@@ -81,20 +95,40 @@ button {
   width: 100%;
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: var(--sp-4) var(--sp-4) var(--sp-7);
+  padding: var(--sp-3) var(--sp-4) var(--sp-6);
   display: flex;
   flex-direction: column;
-  gap: var(--sp-5);
+  gap: var(--sp-4);
   min-height: 100vh;
 }
 
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+/* ==========================================================================
+   Instrument — the gauge, its stage pills and its progress bar
+   --------------------------------------------------------------------------
+   A layout grouping and nothing else now. It used to be a raised dark card;
+   the card was removed and its colour became the page, so what is left here
+   is spacing and a pair of hairline rules.
+   ========================================================================== */
+.instrument {
+  position: relative;
 }
 
+.instrument-body {
+  padding: var(--sp-5) 0 var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.instrument-footer {
+  border-top: 1px solid var(--border);
+  padding: var(--sp-3) 0;
+}
+
+/* ==========================================================================
+   Buttons
+   ========================================================================== */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -104,26 +138,45 @@ button {
   padding: 0 var(--sp-5);
   border: 1px solid transparent;
   border-radius: var(--radius-pill);
-  background: var(--surface-sunken);
+  background: var(--surface);
   color: var(--text);
   font-size: var(--fs-md);
   font-weight: var(--fw-semibold);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out),
-    border-color var(--dur-fast) var(--ease-out);
+    border-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .btn:hover {
-  background: var(--border);
+  background: var(--surface-raised);
 }
 
+.btn:active {
+  transform: translateY(1px);
+}
+
+/*
+  White on --brand-primary measures 5.7:1 against this page but only 3.1:1
+  against the white it sits on inside the button. WCAG grants that ratio to
+  text at 18.66px bold or larger, so the primary button is 19px/700 - not a
+  stylistic whim, it is what keeps the brand orange usable as a button fill
+  without darkening it into a colour Unitel does not own.
+*/
 .btn-primary {
-  background: var(--brand-primary);
+  background-image: var(--brand-gradient);
+  background-color: var(--brand-primary);
   color: var(--brand-on-primary);
+  font-size: 1.1875rem;
+  font-weight: var(--fw-bold);
+  min-height: 3.25rem;
+  box-shadow: var(--shadow-brand);
 }
 
 .btn-primary:hover {
-  background: var(--brand-primary-strong);
+  background-image: none;
+  background-color: var(--brand-primary-strong);
 }
 
 .btn-ghost {
@@ -133,11 +186,91 @@ button {
 }
 
 .btn-ghost:hover {
-  background: var(--surface-sunken);
+  background: var(--surface-hover);
+}
+
+.btn-quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--brand-ink);
+  padding: 0 var(--sp-3);
+}
+
+.btn-quiet:hover {
+  background: var(--brand-tint);
+}
+
+/* --danger-solid, not --danger: the latter is tuned to be read as text on the
+   page background and gives white text only 2.8:1 as a fill. */
+.btn-danger {
+  background: var(--danger-solid);
+  color: #ffffff;
 }
 
 .btn-block {
   width: 100%;
+}
+
+/* ==========================================================================
+   Surfaces and small parts
+   ========================================================================== */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  max-width: 100%;
+}
+
+/* ==========================================================================
+   Popover — the header's menus and confirmations
+   --------------------------------------------------------------------------
+   Anchored to a position:relative trigger wrapper, right-aligned because both
+   of its users live at the right edge of the header. The z-index is what keeps
+   it above the content below it.
+   ========================================================================== */
+.popover {
+  position: absolute;
+  top: calc(100% + var(--sp-2));
+  right: 0;
+  z-index: 30;
+  padding: var(--sp-1);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  transform-origin: top right;
+  animation: popover-in var(--dur-fast) var(--ease-out);
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The duration tokens collapse to 1ms under reduced motion, which would still
+   run the transform for a frame. Dropping the animation outright is cleaner. */
+@media (prefers-reduced-motion: reduce) {
+  .popover {
+    animation: none;
+  }
 }
 
 .label {
@@ -146,4 +279,38 @@ button {
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
   color: var(--text-muted);
+}
+
+.section-title {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* A 3px bar in the brand orange, used to mark the head of a section without
+   spending a whole heading colour on it. */
+.section-title::before {
+  content: "";
+  width: 3px;
+  height: 1em;
+  border-radius: var(--radius-pill);
+  background: var(--brand-primary);
+}
+
+.progress {
+  width: 100%;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--track);
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background-image: var(--brand-gradient);
+  background-color: var(--brand-primary);
+  transition: width var(--dur-base) var(--ease-out);
 }

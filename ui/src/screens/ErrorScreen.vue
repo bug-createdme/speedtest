@@ -26,6 +26,12 @@ const body = computed(() =>
 );
 
 const canChooseServer = computed(() => test.servers.length > 1);
+
+const hints = computed(() => [
+  t("error.hintNetwork"),
+  t("error.hintVpn"),
+  t("error.hintRetry")
+]);
 </script>
 
 <template>
@@ -46,10 +52,11 @@ const canChooseServer = computed(() => test.servers.length > 1);
     <h2 class="error-title">{{ title }}</h2>
     <p class="error-body">{{ body }}</p>
 
-    <ul class="hints">
-      <li>{{ t("error.hintNetwork") }}</li>
-      <li>{{ t("error.hintVpn") }}</li>
-      <li>{{ t("error.hintRetry") }}</li>
+    <ul class="hints card">
+      <li v-for="hint in hints" :key="hint" class="hint">
+        <span class="hint-dot" aria-hidden="true"></span>
+        <span>{{ hint }}</span>
+      </li>
     </ul>
 
     <div class="actions">
@@ -67,7 +74,7 @@ const canChooseServer = computed(() => test.servers.length > 1);
       <button
         v-if="test.error && test.error.detail"
         type="button"
-        class="btn btn-ghost btn-block"
+        class="btn btn-quiet"
         :aria-expanded="showDetails"
         @click="showDetails = !showDetails"
       >
@@ -91,22 +98,32 @@ const canChooseServer = computed(() => test.servers.length > 1);
   width: 100%;
 }
 
+/* The glyph in a tinted disc rather than loose on the background: at 3rem on
+   an otherwise empty screen a bare outline reads as a broken image. */
 .error-icon {
+  width: 4.5rem;
+  height: 4.5rem;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--danger-bg);
   color: var(--danger);
 }
 
 .error-icon svg {
-  width: 3rem;
-  height: 3rem;
+  width: 2.25rem;
+  height: 2.25rem;
 }
 
 .error-title {
   font-size: var(--fs-xl);
   font-weight: var(--fw-bold);
+  max-width: 20rem;
 }
 
 .error-body {
   color: var(--text-secondary);
+  font-size: var(--fs-sm);
   max-width: 28rem;
 }
 
@@ -114,20 +131,34 @@ const canChooseServer = computed(() => test.servers.length > 1);
   margin: 0;
   padding: var(--sp-4);
   list-style: none;
-  background: var(--danger-bg);
-  border-radius: var(--radius-md);
-  color: var(--text);
   font-size: var(--fs-sm);
   text-align: start;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-2);
+  gap: var(--sp-3);
   width: 100%;
+}
+
+.hint {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  color: var(--text-secondary);
+}
+
+.hint-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-top: 0.55em;
+  border-radius: var(--radius-pill);
+  background: var(--brand-primary);
+  flex: none;
 }
 
 .actions {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: var(--sp-2);
   width: 100%;
 }

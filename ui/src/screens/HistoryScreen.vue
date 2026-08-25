@@ -52,13 +52,22 @@ function doClear() {
   clearHistory();
   confirming.value = false;
 }
+
+/* Same digit budget as the gauge and the result screen. */
+function fmtSpeed(value) {
+  const v = Number(value || 0);
+  if (!(v > 0)) return "0.00";
+  if (v < 10) return v.toFixed(2);
+  if (v < 1000) return v.toFixed(1);
+  return v.toFixed(0);
+}
 </script>
 
 <template>
   <section class="history">
-    <h2 class="history-title">{{ t("history.title") }}</h2>
+    <h2 class="section-title">{{ t("history.title") }}</h2>
 
-    <p v-if="!grouped.length" class="empty">{{ t("history.empty") }}</p>
+    <p v-if="!grouped.length" class="empty card">{{ t("history.empty") }}</p>
 
     <ul v-else class="entries">
       <li v-for="(entry, index) in grouped" :key="entry.at + index" class="entry card">
@@ -66,11 +75,39 @@ function doClear() {
           <span class="entry-day">{{ entry.dayLabel }}</span>
           <span class="entry-time">{{ entry.timeLabel }}</span>
         </div>
+
         <div class="entry-metrics">
-          <span class="down">{{ entry.download.toFixed(1) }} ↓</span>
-          <span class="up">{{ entry.upload.toFixed(1) }} ↑</span>
-          <span class="ping">{{ Math.round(entry.ping) }} {{ t("unit.ms") }}</span>
+          <span class="entry-metric metric-down">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path
+                d="M8 3v9m0 0 4-4m-4 4-4-4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            {{ fmtSpeed(entry.download) }}
+          </span>
+          <span class="entry-metric metric-up">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path
+                d="M8 13V4m0 0 4 4M8 4 4 8"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            {{ fmtSpeed(entry.upload) }}
+          </span>
+          <span class="entry-metric metric-ping">
+            {{ Math.round(entry.ping) }} <span class="entry-unit">{{ t("unit.ms") }}</span>
+          </span>
         </div>
+
         <p v-if="entry.server" class="entry-server">{{ entry.server }}</p>
       </li>
     </ul>
@@ -84,10 +121,13 @@ function doClear() {
       >
         {{ t("action.exportCsv") }}
       </button>
+      <button type="button" class="btn btn-ghost btn-block" @click="goBack">
+        {{ t("action.back") }}
+      </button>
       <button
         v-if="grouped.length && !confirming"
         type="button"
-        class="btn btn-ghost btn-block"
+        class="btn btn-quiet clear-link"
         @click="confirming = true"
       >
         {{ t("action.clearHistory") }}
@@ -103,9 +143,6 @@ function doClear() {
           </button>
         </div>
       </div>
-      <button type="button" class="btn btn-ghost btn-block" @click="goBack">
-        {{ t("action.back") }}
-      </button>
     </div>
   </section>
 </template>
@@ -118,15 +155,11 @@ function doClear() {
   width: 100%;
 }
 
-.history-title {
-  font-size: var(--fs-xl);
-  font-weight: var(--fw-bold);
-}
-
 .empty {
   color: var(--text-muted);
   text-align: center;
   padding: var(--sp-6) var(--sp-4);
+  font-size: var(--fs-sm);
 }
 
 .entries {
@@ -142,39 +175,62 @@ function doClear() {
   padding: var(--sp-3) var(--sp-4);
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
+  gap: var(--sp-2);
 }
 
 .entry-when {
   display: flex;
   gap: var(--sp-2);
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
 }
 
 .entry-day {
   font-weight: var(--fw-semibold);
-  color: var(--text);
+  color: var(--text-secondary);
 }
 
 .entry-metrics {
   display: flex;
+  align-items: baseline;
   gap: var(--sp-4);
   font-family: var(--font-numeric);
   font-variant-numeric: tabular-nums;
-  font-weight: var(--fw-semibold);
+  font-weight: var(--fw-bold);
 }
 
-.down {
-  color: var(--brand-download);
+.entry-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
 }
 
-.up {
+.entry-metric svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: none;
+}
+
+.entry-unit {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+}
+
+/* Direction arrow beside each figure: the two speeds are told apart by an
+   orange and a blue, and the arrow is what carries that for anyone who cannot
+   separate the hues. */
+.metric-down {
+  color: var(--brand-ink);
+}
+
+.metric-up {
   color: var(--brand-upload);
 }
 
-.ping {
+.metric-ping {
   color: var(--text-secondary);
+  font-weight: var(--fw-semibold);
 }
 
 .entry-server {
@@ -188,7 +244,20 @@ function doClear() {
 .actions {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: var(--sp-2);
+}
+
+.actions .btn-block {
+  width: 100%;
+}
+
+.clear-link {
+  color: var(--danger);
+}
+
+.clear-link:hover {
+  background: var(--danger-bg);
 }
 
 .confirm {
@@ -196,6 +265,7 @@ function doClear() {
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
+  width: 100%;
 }
 
 .confirm-text {
@@ -206,10 +276,5 @@ function doClear() {
   display: flex;
   gap: var(--sp-2);
   justify-content: flex-end;
-}
-
-.btn-danger {
-  background: var(--danger);
-  color: #fff;
 }
 </style>
