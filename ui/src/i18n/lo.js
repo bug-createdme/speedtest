@@ -103,5 +103,6 @@ export default {
 
   "a11y.gauge": "ຄວາມໄວປັດຈຸບັນ: {value} ເມກາບິດຕໍ່ວິນາທີ",
   "a11y.progress": "ຄວາມຄືບໜ້າການທົດສອບ",
+  "a11y.home": "ໜ້າຫຼັກ",
   "a11y.langSwitch": "ພາສາ"
 };

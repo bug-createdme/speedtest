@@ -96,5 +96,6 @@ export default {
 
   "a11y.gauge": "Current speed: {value} megabits per second",
   "a11y.progress": "Test progress",
+  "a11y.home": "Home",
   "a11y.langSwitch": "Language"
 };

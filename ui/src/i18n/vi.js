@@ -90,5 +90,6 @@ export default {
 
   "a11y.gauge": "Tốc độ hiện tại: {value} megabit mỗi giây",
   "a11y.progress": "Tiến trình đo",
+  "a11y.home": "Màn hình chính",
   "a11y.langSwitch": "Ngôn ngữ"
 };

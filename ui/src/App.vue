@@ -76,6 +76,31 @@ function onCancel() {
   goTo(SCREEN.INITIAL);
 }
 
+/*
+  The wordmark, from anywhere.
+
+  Two things have to happen besides the navigation, and both are the reason
+  this is not just goTo(SCREEN.INITIAL) in the header:
+
+  - A run still in flight has to be abandoned. Left going, it would finish
+    minutes later and the stage watcher would pull the user onto the result
+    screen from wherever they had navigated to. abortTest() no-ops when nothing
+    is running, so this is safe from every screen.
+  - A pending error has to be cleared, or ErrorScreen keeps rendering a failure
+    the user has already walked away from the next time anything sends them
+    there.
+
+  Deliberately does NOT re-run server selection the way onRetry() does. This is
+  a navigation tap, and firing a burst of probes off one is surprising; Start
+  falls back to the first server in the list when selection has not settled, so
+  the start screen is still usable without it.
+*/
+function onHome() {
+  abortTest();
+  test.error = null;
+  goTo(SCREEN.INITIAL);
+}
+
 function onRetry() {
   test.error = null;
   // A failed selection leaves no usable server list; redo it before retrying,
@@ -87,7 +112,7 @@ function onRetry() {
 
 <template>
   <div class="app-shell">
-    <AppHeader />
+    <AppHeader @home="onHome" />
     <main class="main">
       <InitialScreen v-if="screen === SCREEN.INITIAL" @start="onStart" />
       <ServerScreen v-else-if="screen === SCREEN.SERVERS" />
