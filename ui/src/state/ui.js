@@ -1,4 +1,6 @@
-import { ref } from "vue";
+import { ref, watch } from "vue";
+
+import { networkType as bridgeNetworkType } from "../bridge/windvane.js";
 
 /*
   Screen navigation without a router.
@@ -73,6 +75,15 @@ export function toggleTheme() {
   the real radio type.
 */
 export const connectionType = ref("");
+
+/*
+  The super-app knows the real radio type; navigator.connection is a guess at
+  best and absent entirely on iOS. Whenever the bridge answers, its value
+  replaces whatever was detected here.
+*/
+watch(bridgeNetworkType, value => {
+  if (value) connectionType.value = value;
+});
 
 export function detectConnection() {
   const c =

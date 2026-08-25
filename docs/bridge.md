@@ -56,6 +56,46 @@ Danh sách đầy đủ ~90 API khác (Bluetooth, camera, cảm biến chuyển 
 1. **Đóng mini-app:** reference dùng `window.WindVane.call('WVBase', 'closePage', ...)` — **namespace/method này không có trong tài liệu chính thức**. API đúng là `WVMiniApp.close`. Khả năng: reference dùng bản WindVane cũ hơn/có compat shim, hoặc chỉ đơn giản là dùng sai. **Khi implement, dùng `WVMiniApp.close` theo docs chính thức, không copy nguyên `WVBase.closePage` từ reference.**
 2. **Lấy ISDN (số thuê bao):** reference dùng `window.WindVane.call('wv', 'getAuthCode', {scopes:['USER_ID','USER_NAME']}, ...)` — namespace `wv` (chữ thường, không tiền tố `WV`) **không xuất hiện trong tài liệu JSAPI công khai này**. Nhiều khả năng đây là **API mở rộng riêng do đội tích hợp superapp của Unitel cấp thêm**, không phải WindVane chuẩn của Alibaba. **Cần xác nhận trực tiếp với đội superapp Unitel** cách lấy ISDN đúng chuẩn, không giả định `wv.getAuthCode` chắc chắn hoạt động chỉ vì thấy trong reference.
 
+## Lấy ISDN — contract đã có, nguồn là reference chứ không phải docs
+
+**Cập nhật 2026-08-24: đã implement** tại [ui/src/bridge/windvane.js](../ui/src/bridge/windvane.js).
+
+`wv.getAuthCode` **vẫn không có trong tài liệu JSAPI công khai** của WindVane — namespace `wv` viết thường, không có tiền tố `WV`. Nhiều khả năng đây là API mở rộng riêng do đội tích hợp superapp Unitel cấp thêm. Điều đã thay đổi so với bản trước của tài liệu này: giờ có **hình dạng response quan sát được từ một mini-app Unitel chạy thật**, do chủ dự án cung cấp. Đó là bằng chứng mạnh hơn suy đoán, nhưng **yếu hơn một đặc tả** — nếu đội superapp đổi định dạng, không có gì trong code sẽ cảnh báo. Vì vậy mọi truy cập field đều là optional và việc đọc không ra không bị coi là lỗi.
+
+### Gọi
+
+```js
+window.WindVane.call("wv", "getAuthCode", { scopes: ["USER_ID", "USER_NAME"] }, onSuccess, onError);
+```
+
+### Hình dạng response
+
+`result.authSuccessScopes` là một **mảng**, mỗi phần tử **có thể là object, cũng có thể là chuỗi JSON chưa parse** — reference xử lý cả hai trường hợp, nên code ở đây cũng vậy. Mỗi phần tử khoá theo tên scope:
+
+```js
+[ '{"USER_ID":{"isdn":"20XXXXXXXX", ...}}', { "USER_NAME": { "name": "..." } } ]
+```
+
+Lấy ISDN: tìm phần tử có khoá `USER_ID`, rồi đọc `.USER_ID.isdn`.
+
+### Khác biệt có chủ đích so với reference
+
+| Reference làm | Project này làm | Lý do |
+|---|---|---|
+| Chặn việc mount app cho tới khi auth xong, rồi poll `localStorage` tới 4 giây | **Không chờ gì cả**, bridge chạy nền | Chặn UI chờ một lời gọi mạng người dùng không yêu cầu chính là lỗi §13 #15 mà dự án này sinh ra để sửa. Đánh đổi: một lần đo bấm ngay khi vừa mở app có thể gửi telemetry trước khi ISDN về, và bản ghi đó không có số thuê bao. Chấp nhận được so với việc bắt mọi người dùng chờ |
+| Lưu `wv_isdn`, `wv_fullname` vào `localStorage` | Giữ **trong bộ nhớ**, không ghi xuống thiết bị | Reference cần persist vì bootstrap của họ đọc qua nhiều module. Ở đây một `ref` là đủ, và không ghi số thuê bao xuống thiết bị là mặc định an toàn hơn |
+| Đọc cả `USER_NAME` để hiển thị tên | **Chỉ lấy ISDN** | App này không có chỗ nào hiển thị tên, và phòng vận hành đối chiếu kết quả với thuê bao bằng **số**, không bằng tên. Mang thêm tên là thêm dữ liệu cá nhân vào DB kết quả mà không đổi lấy giá trị vận hành nào |
+| Nhúng thẳng thẻ `<script>` alicdn vào `index.html` | URL SDK là **cấu hình** (`windvane_sdk_url` trong `settings.json`), mặc định rỗng | Nhúng cứng khiến bản web thường phải tải một script bên thứ ba từ CDN ở **mỗi lần mở trang** — trên đúng cái trang mà công việc của nó là đo xem mạng người dùng chậm thế nào, và ở thị trường mà CDN đó không chắc nhanh hay truy cập được. Rỗng = bản web không gửi request nào; bản mini-app điền URL vào |
+
+### Hệ quả bảo mật — chưa xử lý
+
+Khi ISDN đi vào telemetry, **bản ghi kết quả trở thành dữ liệu định danh thuê bao**. Hai việc bắt buộc phải làm trước khi có người dùng thật, và **chưa làm**:
+
+1. Endpoint telemetry phải chạy **HTTPS**. Hiện dev đang HTTP.
+2. Trang `/stats.php` đang bảo vệ bằng **một mật khẩu dùng chung duy nhất** — không phân quyền, không nhật ký truy cập, không xoay vòng. Đủ cho pilot nội bộ, không đủ cho một kho dữ liệu chứa số thuê bao.
+
+Đây là lý do mục "Phase 9 phải lên sớm hơn" ở đầu [architecture.md](architecture.md).
+
 ## Ràng buộc kỹ thuật đã xác nhận: không dùng vue-router
 
 Reference project đã **gỡ bỏ vue-router**, thay bằng điều hướng dựa trên state (`v-if` theo 1 store điều khiển "trang hiện tại", API tương thích `this.$router.push()` để code cũ không phải viết lại). Lý do ghi nhận trong tài liệu nội bộ của reference: host mini-app (Ali) không tương thích tốt với URL-based routing của SPA. Đây là ràng buộc kỹ thuật thật, áp dụng chung cho mô hình WebView-mini-app, không riêng WindVane hay LaoApp — **cần tuân theo khi implement UI Vue cho project này** (Phase 5), dù dùng thư viện điều hướng nào.

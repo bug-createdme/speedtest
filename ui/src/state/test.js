@@ -2,6 +2,7 @@ import { reactive } from "vue";
 
 import { locale } from "../i18n/index.js";
 import { connectionType } from "./ui.js";
+import { initBridge, isdn } from "../bridge/windvane.js";
 
 /*
   The bridge between the measurement engine (global `Speedtest`, loaded as a
@@ -101,6 +102,15 @@ export const test = reactive({
 });
 
 let engineSettings = {};
+
+/*
+  Keys in settings.json that configure the UI rather than the measurement
+  engine. The worker ignores parameters it does not recognise, so passing
+  these through would be harmless - but settings.json would then read as if
+  the engine had a WindVane option, which it does not.
+*/
+const UI_SETTING_KEYS = ["windvane_sdk_url"];
+export const uiSettings = { windvane_sdk_url: "" };
 let instance = null;
 let selectionPoll = null;
 
@@ -150,7 +160,13 @@ async function loadSettings() {
   try {
     const response = await fetch("settings.json", { cache: "no-store" });
     const parsed = await response.json();
-    if (parsed && typeof parsed === "object") engineSettings = parsed;
+    if (parsed && typeof parsed === "object") {
+      engineSettings = {};
+      for (const key of Object.keys(parsed)) {
+        if (UI_SETTING_KEYS.includes(key)) uiSettings[key] = parsed[key];
+        else engineSettings[key] = parsed[key];
+      }
+    }
   } catch (e) {
     // A missing settings.json is not fatal: the worker has its own defaults.
     // It IS worth surfacing, because those defaults are not the ones this
@@ -250,6 +266,11 @@ export function chooseServer(server) {
 
 export async function initEngine() {
   await loadSettings();
+  /*
+    Deliberately not awaited. The bridge only exists inside the super-app, and
+    nothing the user can do should wait on it - see the note on initBridge.
+  */
+  initBridge(uiSettings.windvane_sdk_url);
   beginServerSelection();
 }
 
@@ -298,12 +319,24 @@ export function startTest() {
     the public WindVane API), and inventing a placeholder for it here would
     put a field in the database that nothing fills.
   */
+  /*
+    The subscriber number is what lets network operations tie a result to a
+    line rather than to an anonymous IP, so it goes in when the super-app has
+    given us one. JSON.stringify drops undefined keys, so on the plain web the
+    field is absent from the record rather than present and empty.
+
+    This makes stored results subscriber-identifying. Two consequences that
+    are NOT handled here and must be before real users: the telemetry endpoint
+    has to be HTTPS, and the statistics page is currently guarded by one
+    shared password. See docs/architecture.md.
+  */
   instance.setParameter(
     "telemetry_extra",
     JSON.stringify({
       connection: connectionType.value || "unknown",
       locale: locale.value,
       ua: navigator.userAgent,
+      isdn: isdn.value || undefined,
       client: "unitel-speedtest-ui"
     })
   );

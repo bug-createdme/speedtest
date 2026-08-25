@@ -129,3 +129,37 @@ Three things worth knowing before reading those numbers:
 The severity thresholds behind the colour of the increase (30ms, 100ms) are in
 `ResultScreen.vue` and follow the grading in common use for bufferbloat tests.
 If operations has its own thresholds, that function is the one place to change.
+
+## Super-app bridge (WindVane)
+
+`src/bridge/windvane.js` is the only file that touches `window.WindVane`.
+Everything in it degrades to "not available" instead of throwing, so the same
+build runs as a plain web page and inside the Unitel super-app without anything
+above it knowing which.
+
+It supplies two things:
+
+- **The subscriber number (ISDN)**, via `wv.getAuthCode`. This is what lets
+  network operations tie a result to a line rather than to an anonymous IP. It
+  is attached to telemetry and held in memory only - never written to
+  localStorage.
+- **The real network type**, via `WVNetwork.getNetworkType`, replacing
+  `navigator.connection`, which is a guess on Android and absent entirely on
+  iOS.
+
+The SDK is **not** hard-coded into `index.html`. Its URL is
+`windvane_sdk_url` in `settings.json`, empty by default, so the web deployment
+never fetches a third-party script - which on a page whose job is measuring the
+user's connection would be self-defeating. The mini-app deployment sets it.
+
+`wv.getAuthCode` is not in the public WindVane documentation; what is
+implemented is the response shape observed in a working Unitel mini-app. If the
+super-app team changes it, nothing here will warn us, so every field access is
+optional and failing to read one is not an error. `docs/bridge.md` records the
+contract and every place this deliberately differs from the reference project.
+
+**Security consequence, not yet handled**: once the ISDN is attached, stored
+results are subscriber-identifying. The telemetry endpoint has to be HTTPS, and
+`/stats.php` is currently guarded by a single shared password with no roles and
+no access log. Both are Phase 9 items that now block real users rather than
+merely being good practice.
