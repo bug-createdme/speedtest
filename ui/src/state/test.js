@@ -39,6 +39,43 @@ const WORKER_STAGE = {
 
 const MAX_SAMPLES = 120;
 
+/*
+  Stall watchdog.
+
+  The engine surfaces onupdate and onend and nothing else - there is no
+  onerror. onend is reached only from testState >= 4 (speedtest.js:353), a
+  state the worker enters by FINISHING, so a run that never finishes reports
+  nothing at all. Two ways to get there against a server that is not answering:
+  with the shipped xhr_ignoreErrors:1 a failed ping is retried forever
+  (speedtest_worker.js:1082), and getIp (speedtest_worker.js:466) sets no
+  xhr.timeout, so a server that accepts the connection and then goes quiet
+  hangs it indefinitely. Either way the worker parks on a testState the UI
+  reads as "still measuring", which is the observed symptom: stage stuck on
+  ping, "Measuring latency", 0%, forever.
+
+  Turning xhr_ignoreErrors down to 0 would make the worker give up on the first
+  ping error, but it would also abandon a whole run on one transient stream
+  error mid-transfer - which is exactly what the retry is there to survive -
+  and it still would not catch a request that hangs rather than fails. So the
+  timeout belongs here.
+
+  It is a stall detector, not a run deadline: what fails is a run that stops
+  making progress, not a run that is merely slow. The signals are the worker's
+  own progress fractions, because those are driven by pongs received
+  (pingProgress) and by elapsed transfer time (dl/ulProgress). The speed
+  readouts cannot be used for this - they sit on the same rounded value for
+  long stretches on a stable link, see pushSample.
+*/
+const STALL_CHECK_MS = 1000;
+/*
+  The longest gap between two progress ticks a HEALTHY run produces is the
+  upload grace time - 3s in settings.json, during which ulProgress is held at
+  its previous value (speedtest_worker.js:947). 15s leaves five times that
+  margin and still gives up well inside the time a user will wait: the whole
+  run is about 30s.
+*/
+const STALL_TIMEOUT_MS = 15000;
+
 export const test = reactive({
   stage: STAGE.IDLE,
   running: false,
@@ -113,6 +150,9 @@ const UI_SETTING_KEYS = ["windvane_sdk_url"];
 export const uiSettings = { windvane_sdk_url: "" };
 let instance = null;
 let selectionPoll = null;
+let stallTimer = null;
+let stallSince = 0;
+let stallKey = "";
 
 function num(value) {
   const n = parseFloat(value);
@@ -274,6 +314,79 @@ export async function initEngine() {
   beginServerSelection();
 }
 
+/*
+  Fingerprint of how far the run in hand has got. The stage is part of it so
+  that the handover between two stages counts as progress in its own right: the
+  worker holds each stage's fraction at its final value across the 1s pause
+  test_order's "_" inserts, and the next stage's fraction starts from 0 again,
+  so neither number alone moves at the boundary.
+*/
+function progressKey() {
+  return [test.stage, test.pingProgress, test.dlProgress, test.ulProgress].join("|");
+}
+
+function noteProgress() {
+  const key = progressKey();
+  if (key === stallKey) return;
+  stallKey = key;
+  stallSince = Date.now();
+}
+
+function startStallWatch() {
+  stopStallWatch();
+  stallKey = progressKey();
+  stallSince = Date.now();
+  stallTimer = setInterval(() => {
+    if (Date.now() - stallSince < STALL_TIMEOUT_MS) return;
+    failStalled();
+  }, STALL_CHECK_MS);
+}
+
+function stopStallWatch() {
+  if (stallTimer === null) return;
+  clearInterval(stallTimer);
+  stallTimer = null;
+}
+
+/*
+  The run is wedged. Stop the worker before reporting it, because a wedged
+  worker is not an idle one - a refused ping is retried as fast as the
+  connection can fail, which on a handset is a radio held awake for as long as
+  the screen is on.
+
+  No new error kind reaches the user: "stalled" falls through to the generic
+  error.title / error.body, the way "no-result" already does, and those strings
+  ("Can't reach the test server", "This is usually the network, not your
+  device") say the true thing here. What is new is the detail block, which
+  ErrorScreen already knows how to reveal and which names the stage and the
+  server - the two facts that tell a dead test point apart from a dead link.
+*/
+function failStalled() {
+  stopStallWatch();
+  const stage = test.stage;
+  const server = test.usedServer;
+  if (instance) {
+    try {
+      instance.abort();
+    } catch (e) {
+      // Same race as abortTest(): the worker may have finished in between.
+    }
+  }
+  test.running = false;
+  test.error = {
+    kind: "stalled",
+    stage,
+    detail: [
+      "Stage: " + stage,
+      "Server: " +
+        (server
+          ? (server.name || "unnamed") + " - " + server.server
+          : "engine default (same origin)"),
+      "No progress for " + Math.round(STALL_TIMEOUT_MS / 1000) + "s"
+    ].join("\n")
+  };
+}
+
 export function startTest() {
   if (test.running) return;
   resetRun();
@@ -378,19 +491,29 @@ export function startTest() {
     if (stage === STAGE.UPLOAD && test.upload > 0) {
       pushSample(test.ulSamples, test.upload);
     }
+
+    noteProgress();
   };
 
   instance.onend = (aborted) => {
+    stopStallWatch();
     test.running = false;
     test.aborted = aborted;
     test.stage = STAGE.DONE;
   };
 
+  /*
+    Armed before start() rather than after, so that a start() which throws - a
+    worker file that 404s, for one - still lands on the error screen instead of
+    leaving test.running true with nothing driving it.
+  */
+  startStallWatch();
   instance.start();
 }
 
 export function abortTest() {
   if (!instance || !test.running) return;
+  stopStallWatch();
   try {
     instance.abort();
   } catch (e) {
