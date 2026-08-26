@@ -14,6 +14,8 @@
     "validate": "npm run format:check && npm run lint",
     "docker:build": "docker build -t librespeed-speedtest .",
     "docker:build-alpine": "docker build -t librespeed-speedtest:alpine -f Dockerfile.alpine .",
+    "dev": "npm run ui:dev",
+    "build": "npm run ui:build",
     "ui:dev": "vite --config ui/vite.config.mjs",
     "ui:build": "vite build --config ui/vite.config.mjs",
     "ui:preview": "vite preview --config ui/vite.config.mjs"
