@@ -67,5 +67,8 @@
   ],
   "engines": {
     "node": ">=14.0.0"
+  },
+  "dependencies": {
+    "vconsole": "^3.15.1"
   }
 }

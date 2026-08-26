@@ -206,3 +206,47 @@ export async function initBridge(sdkUrl) {
   await Promise.all([fetchSubscriber(), fetchNetworkType()]);
   return true;
 }
+
+/**
+ * Exit/close the MiniApp and return to the SuperApp host screen.
+ * Implements a cascading fallback sequence as established in miniapp-predict-worldcup.
+ */
+export function exitApp() {
+  console.log('[WindVane] Close app requested');
+  if (typeof window === 'undefined') return;
+
+  if (window.WindVane) {
+    window.WindVane.call('WVMiniApp', 'close', {},
+      () => console.log('[WindVane] Closed via WVMiniApp.close'),
+      () => {
+        window.WindVane.call('WVNavigator', 'pop', {},
+          () => console.log('[WindVane] Closed via WVNavigator.pop'),
+          () => {
+            window.WindVane.call('WVUINavigator', 'pop', {},
+              () => console.log('[WindVane] Closed via WVUINavigator.pop'),
+              () => {
+                window.WindVane.call('WVApplication', 'close', {},
+                  () => console.log('[WindVane] Closed via WVApplication.close'),
+                  (e) => {
+                    console.error('[WindVane] All close methods failed, fallback to window.close', e);
+                    try { window.close(); } catch (err) {}
+                  }
+                );
+              }
+            );
+          }
+        );
+      }
+    );
+  } else if (window.AlipayJSBridge) {
+    try {
+      window.AlipayJSBridge.call('exitApp');
+    } catch (e) {
+      try { window.close(); } catch (err) {}
+    }
+  } else {
+    try {
+      window.close();
+    } catch (e) {}
+  }
+}
