@@ -77,6 +77,7 @@ function engineFiles() {
 }
 
 export default defineConfig({
+  base: "./",
   root: fileURLToPath(new URL(".", import.meta.url)),
   plugins: [vue(), engineFiles()],
   build: {

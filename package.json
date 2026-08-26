@@ -16,6 +16,7 @@
     "docker:build-alpine": "docker build -t librespeed-speedtest:alpine -f Dockerfile.alpine .",
     "dev": "npm run ui:dev",
     "build": "npm run ui:build",
+    "build:mini": "node scripts/build-mini.js",
     "ui:dev": "vite --config ui/vite.config.mjs",
     "ui:build": "vite build --config ui/vite.config.mjs",
     "ui:preview": "vite preview --config ui/vite.config.mjs"
