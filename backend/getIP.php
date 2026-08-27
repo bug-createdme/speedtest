@@ -13,6 +13,7 @@ define('SERVER_LOCATION_CACHE_FILE', 'getIP_serverLocation.php');
 define('OFFLINE_IPINFO_DB_FILE', 'country_asn.mmdb');
 
 require_once 'getIP_util.php';
+require_once __DIR__.'/cors_util.php';
 
 function getLocalOrPrivateIpInfo($ip){
     // ::1/128 is the only localhost ipv6 address. there are no others, no need to strpos this
@@ -165,10 +166,8 @@ function formatResponse_simple($ip,$ispName=null){
 }
 
 header('Content-Type: application/json; charset=utf-8');
-if (isset($_GET['cors'])) {
-    header('Access-Control-Allow-Origin: *');
-    header('Access-Control-Allow-Methods: GET, POST');
-}
+// Origin allowlist via ALLOWED_ORIGINS, "*" by default - see cors_util.php.
+applyCorsOrExit('GET, POST');
 // Cross-origin Resource Timing entries hide domainLookup*/connect*/secureConnection*/
 // requestStart/responseStart unless the server opts in with Timing-Allow-Origin; without
 // it, the client's DNS/TCP/TLS timing breakdown reads as 0 in exactly the cross-origin

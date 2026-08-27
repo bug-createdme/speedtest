@@ -1,9 +1,22 @@
 <?php
 
+require_once __DIR__.'/cors_util.php';
+
 // Disable Compression
 @ini_set('zlib.output_compression', 'Off');
 @ini_set('output_buffering', 'Off');
 @ini_set('output_handler', '');
+
+/*
+    Origin check first, before anything else in this file runs.
+
+    This endpoint generates a megabyte of random bytes and then streams it back
+    up to 1024 times - the single most expensive thing this server does. A
+    request from an origin that is not allowed must cost nothing, so the check
+    happens here rather than inside sendHeaders(), which the original code only
+    reached after the payload had already been generated.
+*/
+applyCorsOrExit('GET, POST');
 
 /**
  * @return int
@@ -31,11 +44,6 @@ function getChunkCount()
 function sendHeaders()
 {
     header('HTTP/1.1 200 OK');
-
-    if (isset($_GET['cors'])) {
-        header('Access-Control-Allow-Origin: *');
-        header('Access-Control-Allow-Methods: GET, POST');
-    }
 
     // Indicate a file download
     header('Content-Description: File Transfer');
