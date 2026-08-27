@@ -114,5 +114,18 @@ export default {
   "error.hintCoverage": "Move to somewhere with better signal",
   "error.hintStayOpen": "Keep this screen open until the test finishes",
   "result.invalid.network-changed": "The network changed while measuring, so this result may belong to a different connection than the one shown.",
-  "result.invalid.went-offline": "The connection dropped while measuring, so this result may be incomplete."
+  "result.invalid.went-offline": "The connection dropped while measuring, so this result may be incomplete.",
+
+  // Web access and video stages (CHANGE-010)
+  "stage.browse": "Web",
+  "stage.video": "Video",
+  "status.measuringBrowse": "Testing web access",
+  "status.measuringVideo": "Testing video playback",
+  "metric.browse": "Web access",
+  "metric.video": "Video",
+  "browse.result": "{bytes} KB in {time} ms",
+  "browse.skipped": "Not configured",
+  "video.timeToPlay": "Time to play",
+  "video.rebuffering": "Freezing",
+  "video.quality": "Quality"
 };

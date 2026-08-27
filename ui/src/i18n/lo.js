@@ -121,5 +121,18 @@ export default {
   "error.hintCoverage": "ຍ້າຍໄປບ່ອນທີ່ມີສັນຍານດີກວ່າ",
   "error.hintStayOpen": "ເປີດໜ້ານີ້ໄວ້ຈົນກວ່າການທົດສອບຈະສຳເລັດ",
   "result.invalid.network-changed": "ເຄືອຂ່າຍປ່ຽນລະຫວ່າງການວັດ ຜົນນີ້ອາດເປັນຂອງການເຊື່ອມຕໍ່ອື່ນ.",
-  "result.invalid.went-offline": "ການເຊື່ອມຕໍ່ຫຼຸດລະຫວ່າງການວັດ ຜົນນີ້ອາດບໍ່ຄົບຖ້ວນ."
+  "result.invalid.went-offline": "ການເຊື່ອມຕໍ່ຫຼຸດລະຫວ່າງການວັດ ຜົນນີ້ອາດບໍ່ຄົບຖ້ວນ.",
+
+  // Web access and video stages (CHANGE-010)
+  "stage.browse": "ເວັບ",
+  "stage.video": "ວິດີໂອ",
+  "status.measuringBrowse": "ກຳລັງກວດການເຂົ້າເວັບ",
+  "status.measuringVideo": "ກຳລັງກວດການຫຼິ້ນວິດີໂອ",
+  "metric.browse": "ການເຂົ້າເວັບ",
+  "metric.video": "ວິດີໂອ",
+  "browse.result": "{bytes} KB ໃນ {time} ms",
+  "browse.skipped": "ຍັງບໍ່ໄດ້ຕັ້ງຄ່າ",
+  "video.timeToPlay": "ເວລາເລີ່ມຫຼິ້ນ",
+  "video.rebuffering": "ການຢຸດພາບ",
+  "video.quality": "ຄຸນນະພາບ"
 };

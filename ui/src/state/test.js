@@ -3,6 +3,7 @@ import { reactive } from "vue";
 import { locale } from "../i18n/index.js";
 import { connectionType } from "./ui.js";
 import { compareNetwork, networkSnapshot, watchNetwork } from "../context/network.js";
+import { runStreamingTest } from "../measurement/streaming.js";
 import { initBridge, isdn } from "../bridge/windvane.js";
 
 /*
@@ -18,8 +19,15 @@ export const STAGE = {
   IDLE: "idle",
   STARTING: "starting",
   PING: "ping",
+  BROWSE: "browse",
   DOWNLOAD: "download",
   UPLOAD: "upload",
+  /*
+    Runs on the main thread after the worker finishes, because time-to-play and
+    rebuffering need a real <video> and a Worker has no DOM. See
+    measurement/streaming.js.
+  */
+  VIDEO: "video",
   DONE: "done"
 };
 
@@ -35,7 +43,8 @@ const WORKER_STAGE = {
   2: STAGE.PING,
   3: STAGE.UPLOAD,
   4: STAGE.DONE,
-  5: STAGE.DONE
+  5: STAGE.DONE,
+  6: STAGE.BROWSE
 };
 
 const MAX_SAMPLES = 120;
@@ -135,6 +144,19 @@ export const test = reactive({
   dlStreams: 0,
   ulStreams: 0,
 
+  /* Web access stage (worker) and video stage (main thread). */
+  browseStatus: "",
+  browseTime: 0,
+  browseBytes: 0,
+  browseProgress: 0,
+  videoStatus: "",
+  videoTimeToPlay: 0,
+  videoRebuffering: 0,
+  videoRebufferCount: 0,
+  videoTotal: 0,
+  videoQuality: 0,
+  videoProgress: 0,
+
   dlProgress: 0,
   ulProgress: 0,
   pingProgress: 0,
@@ -185,8 +207,21 @@ let engineSettings = {};
   these through would be harmless - but settings.json would then read as if
   the engine had a WindVane option, which it does not.
 */
-const UI_SETTING_KEYS = ["windvane_sdk_url", "record_endpoint"];
-export const uiSettings = { windvane_sdk_url: "", record_endpoint: "" };
+const UI_SETTING_KEYS = [
+  "windvane_sdk_url",
+  "record_endpoint",
+  "video_url",
+  "video_play_seconds",
+  "video_timeout"
+];
+export const uiSettings = {
+  windvane_sdk_url: "",
+  record_endpoint: "",
+  /* Empty skips the video stage entirely - nothing here invents a URL. */
+  video_url: "",
+  video_play_seconds: 10,
+  video_timeout: 30000
+};
 let instance = null;
 let selectionPoll = null;
 let stallTimer = null;
@@ -260,6 +295,17 @@ function resetRun() {
   test.pingSamples = 0;
   test.dlStreams = 0;
   test.ulStreams = 0;
+  test.browseStatus = "";
+  test.browseTime = 0;
+  test.browseBytes = 0;
+  test.browseProgress = 0;
+  test.videoStatus = "";
+  test.videoTimeToPlay = 0;
+  test.videoRebuffering = 0;
+  test.videoRebufferCount = 0;
+  test.videoTotal = 0;
+  test.videoQuality = 0;
+  test.videoProgress = 0;
   test.dlProgress = 0;
   test.ulProgress = 0;
   test.pingProgress = 0;
@@ -561,6 +607,59 @@ function failStalled() {
   };
 }
 
+/*
+  The video stage, and the end of the run.
+
+  Split out of onend so the "worker finished" path and the "everything
+  finished" path are separate things with separate names - they were the same
+  line before the video stage existed, and conflating them again is how a
+  result gets stored before the last measurement is in it.
+*/
+async function runVideoStage() {
+  if (!uiSettings.video_url) return;
+  test.stage = STAGE.VIDEO;
+  test.videoProgress = 0;
+  try {
+    const result = await runStreamingTest({
+      url: uiSettings.video_url,
+      playSeconds: Number(uiSettings.video_play_seconds) || 10,
+      timeoutMs: Number(uiSettings.video_timeout) || 30000,
+      onProgress: (value) => {
+        test.videoProgress = value;
+      }
+    });
+    test.videoStatus = result.status;
+    test.videoTimeToPlay = result.timeToPlayMs === null ? 0 : result.timeToPlayMs;
+    test.videoRebuffering = result.rebufferingMs === null ? 0 : result.rebufferingMs;
+    test.videoRebufferCount = result.rebufferCount === null ? 0 : result.rebufferCount;
+    test.videoTotal = result.totalMs === null ? 0 : result.totalMs;
+    test.videoQuality = result.quality === null ? 0 : result.quality;
+  } catch (e) {
+    /*
+      runStreamingTest resolves rather than rejecting, so reaching here means
+      something outside it went wrong. A broken video stage must not lose the
+      speed measurements that already succeeded.
+    */
+    test.videoStatus = "Error";
+  }
+  test.videoProgress = 1;
+}
+
+function finishRun() {
+  stopVisibilityWatch();
+  test.running = false;
+  test.aborted = false;
+  /*
+    Second network snapshot, taken now rather than when the worker stopped, so
+    it covers the video stage too - and taken BEFORE the stage flips to DONE,
+    because that flip is what App.vue watches to store the result. The verdict
+    has to be on `test` by the time it reads it.
+  */
+  test.netEnd = networkSnapshot();
+  test.invalid = compareNetwork(test.netStart, test.netEnd);
+  test.stage = STAGE.DONE;
+}
+
 export function startTest() {
   if (test.running) return;
   resetRun();
@@ -731,6 +830,10 @@ export function startTest() {
     test.pingSamples = num(data.pingSamplesStatus);
     test.dlStreams = num(data.dlStreams);
     test.ulStreams = num(data.ulStreams);
+    if (data.browseStatusStatus) test.browseStatus = data.browseStatusStatus;
+    test.browseTime = num(data.browseTimeStatus);
+    test.browseBytes = num(data.browseBytesStatus);
+    test.browseProgress = num(data.browseProgress);
     if (data.testId) test.testId = data.testId;
 
     if (data.clientIp) {
@@ -752,17 +855,29 @@ export function startTest() {
 
   instance.onend = (aborted) => {
     stopStallWatch();
-    stopVisibilityWatch();
-    test.running = false;
-    test.aborted = aborted;
+    if (aborted) {
+      stopVisibilityWatch();
+      test.running = false;
+      test.aborted = true;
+      test.netEnd = networkSnapshot();
+      test.invalid = compareNetwork(test.netStart, test.netEnd);
+      test.stage = STAGE.DONE;
+      return;
+    }
     /*
-      Second snapshot, and the comparison. Taken before the stage flips to
-      DONE, because that flip is what App.vue watches to store the result -
-      the verdict has to be on `test` by the time it reads it.
+      The worker is finished, the RUN is not.
+
+      The video stage cannot live in the worker - time-to-play and rebuffering
+      need a real <video> and a Worker has no DOM - so it runs here, after the
+      transfers, on the same link. test.running stays true through it: it is
+      still a measurement in progress, and letting it drop would re-enable the
+      Start button mid-run.
+
+      The stall watchdog is stopped because it watches the worker's progress
+      fractions, which no longer move. runStreamingTest has its own timeout and
+      resolves rather than rejecting, so this cannot hang on it.
     */
-    test.netEnd = networkSnapshot();
-    test.invalid = compareNetwork(test.netStart, test.netEnd);
-    test.stage = STAGE.DONE;
+    runVideoStage().then(finishRun);
   };
 
   /*
@@ -798,6 +913,22 @@ export function hasResult() {
   same number the engine was configured with rather than a hard-coded guess -
   settings.json sets 12s here while the engine's own default is 15s.
 */
+/*
+  Which stages this build will actually run.
+
+  Web and video are skipped when no URL is configured for them (neither has one
+  by default - the sources are still to be agreed with the partner). The
+  stepper needs to know, because showing a step that nothing will ever reach
+  reads as a run that got stuck rather than a stage that was never enabled.
+*/
+export function availableStages() {
+  const stages = [STAGE.PING];
+  if (engineSettings.url_browse) stages.push(STAGE.BROWSE);
+  stages.push(STAGE.DOWNLOAD, STAGE.UPLOAD);
+  if (uiSettings.video_url) stages.push(STAGE.VIDEO);
+  return stages;
+}
+
 export function stageDuration(stage) {
   if (stage === STAGE.DOWNLOAD) return Number(engineSettings.time_dl_max) || 15;
   if (stage === STAGE.UPLOAD) return Number(engineSettings.time_ul_max) || 15;

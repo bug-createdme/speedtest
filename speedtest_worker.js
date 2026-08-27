@@ -6,7 +6,7 @@
 */
 
 // data reported to main thread
-let testState = -1; // -1=not started, 0=starting, 1=download test, 2=ping+jitter test, 3=upload test, 4=finished, 5=abort
+let testState = -1; // -1=not started, 0=starting, 1=download test, 2=ping+jitter test, 3=upload test, 4=finished, 5=abort, 6=web access test
 let dlStatus = ""; // download speed in megabit/s with 2 decimal digits
 let ulStatus = ""; // upload speed in megabit/s with 2 decimal digits
 let pingStatus = ""; // ping in milliseconds with 2 decimal digits
@@ -57,6 +57,12 @@ let dlJitterStatus = ""; // variation of the latency probes taken during the dow
 let ulJitterStatus = "";
 let pingSamplesStatus = 0; // how many idle ping samples pingStatus/jitterStatus are drawn from
 
+/* Web access stage. See browseTest() for what these mean and what they cannot mean. */
+let browseStatusStatus = ""; // "" not run, or OK / Timeout / Short / Error / Skip
+let browseTimeStatus = 0; // ms to reach browse_target_bytes, capped at browse_budget
+let browseBytesStatus = 0; // bytes actually received inside the budget
+let browseProgress = 0; // 0-1, for the UI
+
 /*
 	Bytes per second to the same Mbit/s figure dlStatus reports, so a peak and an
 	average sitting next to each other are the same kind of number. Returns ""
@@ -93,7 +99,7 @@ function twarn(s) {
 // test settings. can be overridden by sending specific values with the start command
 let settings = {
 	mpot: false, //set to true when in MPOT mode
-	test_order: "IP_D_U", //order in which tests will be performed as a string. D=Download, U=Upload, P=Ping+Jitter, I=IP, _=1 second delay
+	test_order: "IP_D_U", //order in which tests will be performed as a string. D=Download, U=Upload, P=Ping+Jitter, B=web access (browse), I=IP, _=1 second delay
 	time_ul_max: 15, // max duration of upload test in seconds
 	time_dl_max: 15, // max duration of download test in seconds
 	time_auto: true, // if set to true, tests will take less time on faster connections
@@ -104,6 +110,9 @@ let settings = {
 	url_ul: "backend/empty.php", // path to an empty file, used for upload test. must be relative to this js file
 	url_ping: "backend/empty.php", // path to an empty file, used for ping test. must be relative to this js file
 	url_getIp: "backend/getIP.php", // path to getIP.php relative to this js file, or a similar thing that outputs the client's ip
+	url_browse: "", // resource used by the web-access stage. EMPTY BY DEFAULT: unset, the stage reports Skip rather than inventing a URL. Must be readable cross-origin (CORS) - see browseTest()
+	browse_target_bytes: 500000, // the "first 500KB" of the indicator. Decimal, which is the reading that reproduces the partner's own reported pass rate
+	browse_budget: 4000, // ms. Their export caps loading time at exactly this
 	getIp_ispInfo: true, //if set to true, the server will include ISP info with the IP address
 	getIp_ispInfo_distance: "km", //km or mi=estimate distance from server in km/mi; set to false to disable distance estimation. getIp_ispInfo must be enabled in order for this to work
 	xhr_dlMultistream: 6, // number of download streams to use (can be different if enable_quirks is active)
@@ -295,6 +304,10 @@ this.addEventListener("message", function(e) {
 				dlJitterStatus: dlJitterStatus,
 				ulJitterStatus: ulJitterStatus,
 				pingSamplesStatus: pingSamplesStatus,
+				browseStatusStatus: browseStatusStatus,
+				browseTimeStatus: browseTimeStatus,
+				browseBytesStatus: browseBytesStatus,
+				browseProgress: browseProgress,
 				dlStreams: settings.xhr_dlMultistream,
 				ulStreams: settings.xhr_ulMultistream
 			})
@@ -384,7 +397,8 @@ this.addEventListener("message", function(e) {
 		let iRun = false,
 			dRun = false,
 			uRun = false,
-			pRun = false;
+			pRun = false,
+			bRun = false;
 		const runNextTest = function() {
 			if (testState == 5) return;
 			if (test_pointer >= settings.test_order.length) {
@@ -441,6 +455,17 @@ this.addEventListener("message", function(e) {
 						pingTest(runNextTest);
 					}
 					break;
+				case "B":
+					{
+						test_pointer++;
+						if (bRun) {
+							runNextTest();
+							return;
+						} else bRun = true;
+						testState = 6;
+						browseTest(runNextTest);
+					}
+					break;
 				case "_":
 					{
 						test_pointer++;
@@ -455,7 +480,9 @@ this.addEventListener("message", function(e) {
 	}
 	if (params[0] === "abort") {
 		// abort command
-        if (testState >= 4) return;
+        // Already over: 4 finished, 5 aborted. NOT ">= 4" - state 6 is the web
+        // access stage and is very much abortable. Same trap as speedtest.js:353.
+        if (testState === 4 || testState === 5) return;
 		tlog("manually aborted");
 		clearRequests(); // stop all xhr activity
 		//runNextTest is block scoped to the start handler, so assigning it here only
@@ -496,6 +523,10 @@ this.addEventListener("message", function(e) {
 		dlJitterStatus = "";
 		ulJitterStatus = "";
 		pingSamplesStatus = 0;
+		browseStatusStatus = "";
+		browseTimeStatus = 0;
+		browseBytesStatus = 0;
+		browseProgress = 0;
 		loadedLatency = { dl: { sent: 0, lost: 0, samples: [] }, ul: { sent: 0, lost: 0, samples: [] } };
 	}
 });
@@ -758,6 +789,142 @@ function publishLoadedLatency() {
 		ulJitterStatus = u.jitter;
 	}
 }
+/*
+	Web access test ("browse", TEST_TYPE=browse in the partner's export).
+
+	The indicator is "Tỷ lệ duyệt Web: Time to download first 500KB ≤4s". Read
+	their 25,210-row export before assuming what that means: only 16% of their
+	Unitel browse samples carry status OK, while the report claims 82.8% passed.
+	The rule that reproduces the report is the WEIGHT - did 500 KB arrive inside
+	the four second budget - not whether the page finished. Their loading time
+	is capped at exactly 4000ms in every row, so most samples are marked Timeout
+	and pass anyway.
+
+	So that is what is measured here: bytes arriving against a clock, stopped
+	the moment the target is reached.
+
+	⚠ WHAT THIS CANNOT BE, AND WHY
+
+	Their browse test loads real sites - tiktok, youtube, facebook, google,
+	twitter, m.mobilelegends.com - and reports page weight and first contentful
+	paint for each. nPerf is a native app driving its own webview, so it can see
+	inside those loads. This is JavaScript inside somebody else's WebView and it
+	cannot:
+
+	  - reading bytes from a cross-origin response requires CORS, and none of
+	    those six sites sends it
+	  - a no-cors fetch returns an opaque response: no body, and transferSize 0
+	    without Timing-Allow-Origin, so nothing can be weighed
+	  - an iframe would be blocked by X-Frame-Options on every one of them
+
+	The honest substitute is a URL that DOES allow us to read it, which in
+	practice means one served by the test server. That measures the same thing
+	the indicator names - can this link move 500 KB of HTTP in four seconds -
+	over the same path the rest of the test uses. It does not measure the real
+	web, and no report built on it should claim to.
+
+	url_browse is empty by default. Unset, the stage reports Skip and costs
+	nothing; nothing here invents a URL.
+*/
+let browseCalled = false;
+function browseTest(done) {
+	tverb("browseTest");
+	if (browseCalled) {
+		done();
+		return;
+	}
+	browseCalled = true;
+
+	if (!settings.url_browse) {
+		browseStatusStatus = "Skip";
+		browseProgress = 1;
+		done();
+		return;
+	}
+	if (typeof fetch !== "function" || typeof AbortController !== "function") {
+		// No streaming body, no way to stop the clock at 500 KB.
+		browseStatusStatus = "Skip";
+		browseProgress = 1;
+		done();
+		return;
+	}
+
+	const controller = new AbortController();
+	const url = settings.url_browse + url_sep(settings.url_browse) + (settings.mpot ? "cors=true&" : "") + "r=" + Math.random();
+	const startT = new Date().getTime();
+	let loaded = 0;
+	let finished = false;
+
+	const finish = function(status) {
+		if (finished) return;
+		finished = true;
+		try {
+			controller.abort();
+		} catch (e) {}
+		if (timer) clearTimeout(timer);
+		if (ticker) clearInterval(ticker);
+		browseStatusStatus = status;
+		browseBytesStatus = loaded;
+		browseProgress = 1;
+		tlog("browse: " + status + " " + loaded + "B in " + browseTimeStatus + "ms");
+		done();
+	};
+
+	/*
+		The budget is a measurement boundary, not a failure. Their data caps
+		loading time at exactly this value, so a run that is still going at 4s
+		reports 4000ms with however many bytes it managed - which is precisely
+		the pair the pass rule needs.
+	*/
+	const timer = setTimeout(function() {
+		browseTimeStatus = settings.browse_budget;
+		finish("Timeout");
+	}, settings.browse_budget);
+
+	const ticker = setInterval(function() {
+		if (finished) return;
+		const elapsed = new Date().getTime() - startT;
+		browseProgress = Math.min(elapsed / settings.browse_budget, 1);
+		browseBytesStatus = loaded;
+	}, 200);
+
+	fetch(url, { signal: controller.signal, cache: "no-store", credentials: "omit" })
+		.then(function(response) {
+			if (!response.ok || !response.body) throw new Error("HTTP " + response.status);
+			const reader = response.body.getReader();
+			const pump = function() {
+				return reader.read().then(function(result) {
+					if (finished) return;
+					if (result.done) {
+						/*
+							The whole resource arrived before the target. Report the
+							real elapsed time and the real weight: a resource smaller
+							than the target cannot pass, and saying so is better than
+							silently treating a short file as a fast link.
+						*/
+						browseTimeStatus = new Date().getTime() - startT;
+						finish(loaded >= settings.browse_target_bytes ? "OK" : "Short");
+						return;
+					}
+					loaded += result.value ? result.value.length : 0;
+					if (loaded >= settings.browse_target_bytes) {
+						browseTimeStatus = new Date().getTime() - startT;
+						finish("OK");
+						return;
+					}
+					return pump();
+				});
+			};
+			return pump();
+		})
+		.catch(function(err) {
+			if (finished) return;
+			browseTimeStatus = new Date().getTime() - startT;
+			tverb("browse failed: " + err);
+			finish("Error");
+		});
+}
+
 // download test, calls done function when it's over
 let dlCalled = false; // used to prevent multiple accidental calls to dlTest
 function dlTest(done) {

@@ -108,5 +108,18 @@ export default {
   "error.hintCoverage": "Di chuyển tới nơi có sóng tốt hơn",
   "error.hintStayOpen": "Giữ nguyên màn hình này cho tới khi đo xong",
   "result.invalid.network-changed": "Mạng đã thay đổi trong lúc đo, nên kết quả này có thể thuộc về một kết nối khác với kết nối đang hiển thị.",
-  "result.invalid.went-offline": "Mất kết nối trong lúc đo, nên kết quả này có thể chưa đầy đủ."
+  "result.invalid.went-offline": "Mất kết nối trong lúc đo, nên kết quả này có thể chưa đầy đủ.",
+
+  // Web access and video stages (CHANGE-010)
+  "stage.browse": "Web",
+  "stage.video": "Video",
+  "status.measuringBrowse": "Đang kiểm tra truy cập web",
+  "status.measuringVideo": "Đang kiểm tra phát video",
+  "metric.browse": "Truy cập web",
+  "metric.video": "Video",
+  "browse.result": "{bytes} KB trong {time} ms",
+  "browse.skipped": "Chưa cấu hình",
+  "video.timeToPlay": "Thời gian bắt đầu phát",
+  "video.rebuffering": "Dừng hình",
+  "video.quality": "Chất lượng"
 };

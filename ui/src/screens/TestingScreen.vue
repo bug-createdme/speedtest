@@ -3,7 +3,7 @@ import { computed } from "vue";
 import SpeedGauge from "../components/SpeedGauge.vue";
 import SparkLine from "../components/SparkLine.vue";
 import StageStepper from "../components/StageStepper.vue";
-import { STAGE, stageDuration, test } from "../state/test.js";
+import { STAGE, availableStages, stageDuration, test } from "../state/test.js";
 import { useI18n } from "../i18n/index.js";
 
 defineEmits(["cancel"]);
@@ -29,6 +29,8 @@ const progress = computed(() => {
   if (test.stage === STAGE.DOWNLOAD) return test.dlProgress;
   if (test.stage === STAGE.UPLOAD) return test.ulProgress;
   if (test.stage === STAGE.PING) return test.pingProgress;
+  if (test.stage === STAGE.BROWSE) return test.browseProgress;
+  if (test.stage === STAGE.VIDEO) return test.videoProgress;
   return 0;
 });
 
@@ -36,6 +38,8 @@ const duration = computed(() => stageDuration(test.stage));
 
 const headline = computed(() => {
   if (test.stage === STAGE.PING) return t("status.measuringPing");
+  if (test.stage === STAGE.BROWSE) return t("status.measuringBrowse");
+  if (test.stage === STAGE.VIDEO) return t("status.measuringVideo");
   if (test.stage === STAGE.DOWNLOAD) return t("status.measuringDownload");
   if (test.stage === STAGE.UPLOAD) return t("status.measuringUpload");
   return t("status.idle");
@@ -43,6 +47,8 @@ const headline = computed(() => {
 
 const doneStages = computed(() => ({
   [STAGE.PING]: test.ping > 0,
+  [STAGE.BROWSE]: !!test.browseStatus,
+  [STAGE.VIDEO]: !!test.videoStatus,
   [STAGE.DOWNLOAD]: test.download > 0 && test.stage !== STAGE.DOWNLOAD,
   [STAGE.UPLOAD]: test.upload > 0 && test.stage !== STAGE.UPLOAD
 }));
@@ -93,7 +99,7 @@ const settled = computed(() =>
   <section class="testing">
     <div class="instrument">
       <div class="instrument-body">
-        <StageStepper :stage="test.stage" :done="doneStages" />
+        <StageStepper :stage="test.stage" :done="doneStages" :available="availableStages()" />
 
         <!--
           One polite live region for the whole run, carrying the stage name only.

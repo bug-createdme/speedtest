@@ -199,3 +199,45 @@ describe("latency under load", () => {
     expect(out.ulJitterStatus).toBe("");
   });
 });
+
+describe("terminal states", () => {
+  /*
+    A regression guard for a bug that cost a debugging session and would have
+    been invisible in production.
+
+    "The run is over" was encoded as `testState >= 4`, which quietly reserved
+    every future state number as another way to end the test. Adding the web
+    access stage as state 6 tripped it: the main thread saw 6, decided the run
+    had finished, tore down the worker and reported a result with no download
+    and no upload - and no error anywhere, because nothing had failed. The
+    numbers were simply absent.
+
+    This asserts the shape of the check rather than its behaviour, because
+    behaviour needs a Worker and a network. It is cheap and it fails the moment
+    somebody writes the loose comparison back.
+  */
+  /*
+    Anchored on `if (`, so the prose explaining the old comparison in both
+    files does not trip its own guard - the first version of this test failed
+    on the comment describing the bug.
+  */
+  const looseTerminalCheck = /if\s*\(\s*(?:data\.)?testState\s*>=\s*4/;
+
+  it("does not treat every state above 3 as finished (speedtest.js)", () => {
+    const source = fs.readFileSync(path.join(repoRoot, "speedtest.js"), "utf8");
+    expect(source).not.toMatch(looseTerminalCheck);
+    expect(source).toMatch(/testState === 4 \|\| .*testState === 5/);
+  });
+
+  it("does not treat every state above 3 as unabortable (worker)", () => {
+    const source = fs.readFileSync(path.join(repoRoot, "speedtest_worker.js"), "utf8");
+    expect(source).not.toMatch(looseTerminalCheck);
+  });
+
+  /* The worker documents its own states; 6 must be among them or the next
+     reader has no way to know what it is. */
+  it("documents the web access state", () => {
+    const source = fs.readFileSync(path.join(repoRoot, "speedtest_worker.js"), "utf8");
+    expect(source).toMatch(/6=web access test/);
+  });
+});

@@ -39,15 +39,50 @@
 
   Four of the nine indicators - three voice, one livestream - cannot be
   measured from a WebView at all and are out of scope for this app (REQ-004).
-  Web and video are in scope and not yet implemented; they appear below as
-  declared metrics with no evaluator, so a report can show "not measured"
-  rather than silently omitting three of the five columns it is supposed to
-  have.
+  The other five are all implemented: download, upload, web, and the two video
+  indicators.
 */
 
 /** Per-sample pass thresholds. A sample at exactly the threshold PASSES. */
 export const DOWNLOAD_MIN_KBPS = 4260; // see the warning above before changing
 export const UPLOAD_MIN_KBPS = 520;
+
+/*
+  ── WEB AND VIDEO, RECOVERED FROM THEIR OWN DATA ────────────────────────────
+
+  These three were not obvious from the report headers, so they were derived
+  from the 25,210-row nPerf export and checked against the percentages the
+  report prints for Unitel.
+
+  WEB. The header says "Time to download first 500KB ≤4s". The obvious reading
+  - a sample passes when BROWSE_URL_STATUS is "OK" - is wrong: only 16.0% of
+  their Unitel browse samples are OK, while the report claims 82.8%. The rule
+  that reproduces the number is the weight: BROWSE_URL_WEIGHT >= 500,000 bytes
+  gives 82.1%, within 0.7 points of the report.
+
+  What that means in practice: their loading time is CAPPED at the 4s budget
+  (median and max are both exactly 4000ms), so most page loads are marked
+  Timeout because the whole page did not finish - and still pass, because half
+  a megabyte arrived inside the window. The indicator is "did the connection
+  move 500 KB of real web content in four seconds", not "did the page finish".
+
+  Decimal 500,000 rather than binary 512,000: both are close, and the decimal
+  reading lands nearer the printed figure (82.1% vs 81.7%).
+
+  VIDEO. PRELOADING_TIME <= 4000ms for time-to-play, REBUFFERING_TIME === 0 for
+  the no-freeze indicator - the wording is "không bị dừng hình", which admits
+  no tolerance.
+
+  ⚠ The video DENOMINATOR is not settled. Counting every sample gives 77.1% /
+  75.1%; counting only STREAM_QUALITY_STATUS "OK" gives 99.1% / 97.6%; the
+  report prints 81.3% / 79.1%, between the two. So their exclusion rule is
+  neither "all" nor "successful only" and cannot be recovered from the file.
+  The reading implemented in excludedReason() is stated there. This is REQ-006
+  in the gap assessment and it moves a reported rate by several points.
+*/
+export const BROWSE_MIN_BYTES = 500_000;
+export const BROWSE_BUDGET_MS = 4000;
+export const VIDEO_MAX_TIME_TO_PLAY_MS = 4000;
 
 /** Share of samples that must pass for the location to be rated "đạt". */
 export const PASS_RATE = {
@@ -61,9 +96,9 @@ export const PASS_RATE = {
   than folded into PASS_RATE, so the exception stays visible.
 */
 export const METRICS = {
-  web: { key: "web", implemented: false, rate: { normal: 0.9, event: 0.8 } },
-  videoPlay: { key: "videoPlay", implemented: false, rate: { normal: 0.95, event: 0.9 } },
-  videoFreeze: { key: "videoFreeze", implemented: false, rate: { normal: 0.9, event: 0.8 } },
+  web: { key: "web", implemented: true, rate: { normal: 0.9, event: 0.8 } },
+  videoPlay: { key: "videoPlay", implemented: true, rate: { normal: 0.95, event: 0.9 } },
+  videoFreeze: { key: "videoFreeze", implemented: true, rate: { normal: 0.9, event: 0.8 } },
   download: { key: "download", implemented: true, rate: PASS_RATE },
   upload: { key: "upload", implemented: true, rate: PASS_RATE }
 };
@@ -111,7 +146,29 @@ export function samplePasses(record, metric) {
     const value = record.SPEED_UPLOAD_AVG;
     return typeof value === "number" ? value >= UPLOAD_MIN_KBPS : null;
   }
-  // web / videoPlay / videoFreeze: nothing measures these yet.
+  if (metric === "web") {
+    /*
+      A page load that errored outright is not a verdict on the network - it is
+      a failed measurement, and counting it as a slow connection would blame
+      the link for a broken URL. Timeout IS a verdict: the budget ran out.
+    */
+    if (record.BROWSE_STATUS === "Error" || record.BROWSE_STATUS === "Skip") return null;
+    const value = record.BROWSE_BYTES;
+    return typeof value === "number" ? value >= BROWSE_MIN_BYTES : null;
+  }
+  if (metric === "videoPlay") {
+    if (record.STREAM_STATUS === "Error" || record.STREAM_STATUS === "Skip") return null;
+    const value = record.STREAM_PRELOADING_TIME;
+    if (typeof value !== "number") return null;
+    return value <= VIDEO_MAX_TIME_TO_PLAY_MS;
+  }
+  if (metric === "videoFreeze") {
+    if (record.STREAM_STATUS === "Error" || record.STREAM_STATUS === "Skip") return null;
+    const value = record.STREAM_REBUFFERING_TIME;
+    if (typeof value !== "number") return null;
+    // "không bị dừng hình" admits no tolerance.
+    return value === 0;
+  }
   return null;
 }
 

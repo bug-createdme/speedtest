@@ -350,7 +350,20 @@ Speedtest.prototype = {
       } catch (e) {
         console.error("Speedtest onupdate event threw exception: " + e);
       }
-      if (data.testState >= 4) {
+      /*
+        The two states that mean the run is over: 4 finished, 5 aborted.
+
+        This was `testState >= 4`, which encoded "finished" as "numerically at
+        least four" and quietly reserved every future state number as another
+        way to end the test. Adding the web-access stage as state 6 tripped
+        exactly that: the main thread saw 6, decided the run had ended, tore
+        down the worker and reported a result - with no download or upload,
+        because neither had run yet, and no error anywhere to say why.
+
+        Listed explicitly so the next stage added to the worker cannot end the
+        run by existing.
+      */
+      if (data.testState === 4 || data.testState === 5) {
         clearInterval(this.updater);
         this._state = 4;
         // A test that ended normally has already flushed its telemetry, because

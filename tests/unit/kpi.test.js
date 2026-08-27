@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BROWSE_BUDGET_MS,
+  BROWSE_MIN_BYTES,
   DOWNLOAD_MIN_KBPS,
   UPLOAD_MIN_KBPS,
+  VIDEO_MAX_TIME_TO_PLAY_MS,
   excludedReason,
   samplePasses,
   summarise
@@ -136,11 +139,13 @@ describe("summary", () => {
     "Ko đạt" for a network nobody measured.
   */
   it("reports an unmeasured indicator as null rather than 0%", () => {
+    /* The sample carries speeds only - no browse or stream figures - so web
+       is implemented but has nothing to judge on this run. */
     const result = summarise([passing()]);
+    expect(result.metrics.web.implemented).toBe(true);
     expect(result.metrics.web.measured).toBe(0);
     expect(result.metrics.web.rate).toBeNull();
     expect(result.metrics.web.verdict).toBeNull();
-    expect(result.metrics.web.implemented).toBe(false);
   });
 
   it("keeps excluded records out of the rate and still counts them", () => {
@@ -166,5 +171,96 @@ describe("summary", () => {
     const result = summarise([]);
     expect(result.metrics.download.measured).toBe(0);
     expect(result.metrics.download.verdict).toBeNull();
+  });
+});
+
+/*
+  Web and video. Every threshold below was recovered from the partner's own
+  25,210-row export and checked against the percentages their report prints,
+  not read off a header - see the note at the top of kpi.js.
+*/
+describe("web access", () => {
+  const web = (bytes, status) => ({
+    BROWSE_BYTES: bytes,
+    BROWSE_STATUS: status || "Timeout",
+    MEASUREMENT_VALID: true,
+    NET_TYPE: "mobile"
+  });
+
+  it("uses 500,000 bytes as the bar", () => {
+    expect(BROWSE_MIN_BYTES).toBe(500_000);
+    expect(BROWSE_BUDGET_MS).toBe(4000);
+  });
+
+  it("passes at exactly 500 KB and fails one byte short", () => {
+    expect(samplePasses(web(500_000), "web")).toBe(true);
+    expect(samplePasses(web(499_999), "web")).toBe(false);
+  });
+
+  /*
+    The rule that reproduces their reported 82.8%. Judging on status instead
+    gives 16% - a page that did not finish inside the budget still passes if
+    half a megabyte arrived.
+  */
+  it("passes a page that timed out but moved 500 KB", () => {
+    expect(samplePasses(web(1_050_000, "Timeout"), "web")).toBe(true);
+  });
+
+  /* A broken URL is a failed measurement, not a slow network. */
+  it("declines to judge an errored or skipped load", () => {
+    expect(samplePasses(web(0, "Error"), "web")).toBeNull();
+    expect(samplePasses(web(0, "Skip"), "web")).toBeNull();
+  });
+});
+
+describe("video", () => {
+  const vid = (play, rebuf, status) => ({
+    STREAM_PRELOADING_TIME: play,
+    STREAM_REBUFFERING_TIME: rebuf,
+    STREAM_STATUS: status || "OK",
+    MEASUREMENT_VALID: true,
+    NET_TYPE: "mobile"
+  });
+
+  it("passes time-to-play at exactly 4s and fails past it", () => {
+    expect(VIDEO_MAX_TIME_TO_PLAY_MS).toBe(4000);
+    expect(samplePasses(vid(4000, 0), "videoPlay")).toBe(true);
+    expect(samplePasses(vid(4001, 0), "videoPlay")).toBe(false);
+  });
+
+  /* "không bị dừng hình" admits no tolerance: one millisecond of freezing
+     fails the indicator. */
+  it("fails the freeze indicator on any rebuffering at all", () => {
+    expect(samplePasses(vid(1000, 0), "videoFreeze")).toBe(true);
+    expect(samplePasses(vid(1000, 1), "videoFreeze")).toBe(false);
+  });
+
+  /*
+    A video that never started is a verdict on the link; a video that errored
+    is a failed measurement. They must not be counted the same way.
+  */
+  it("judges a timeout but not an error", () => {
+    expect(samplePasses(vid(9000, 0, "Timeout"), "videoPlay")).toBe(false);
+    expect(samplePasses(vid(0, 0, "Error"), "videoPlay")).toBeNull();
+    expect(samplePasses(vid(0, 0, "Skip"), "videoFreeze")).toBeNull();
+  });
+
+  it("counts all five indicators once web and video are measured", () => {
+    const record = {
+      SPEED_DOWNLOAD_AVG: 20_000,
+      SPEED_UPLOAD_AVG: 4_000,
+      BROWSE_BYTES: 900_000,
+      BROWSE_STATUS: "Timeout",
+      STREAM_PRELOADING_TIME: 1200,
+      STREAM_REBUFFERING_TIME: 0,
+      STREAM_STATUS: "OK",
+      MEASUREMENT_VALID: true,
+      NET_TYPE: "mobile"
+    };
+    const result = summarise([record]);
+    for (const name of ["web", "videoPlay", "videoFreeze", "download", "upload"]) {
+      expect(result.metrics[name].measured, name).toBe(1);
+      expect(result.metrics[name].verdict, name).toBe(true);
+    }
   });
 });

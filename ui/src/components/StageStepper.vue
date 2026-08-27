@@ -5,7 +5,8 @@ import { useI18n } from "../i18n/index.js";
 
 const props = defineProps({
   stage: { type: String, required: true },
-  done: { type: Object, default: () => ({}) }
+  done: { type: Object, default: () => ({}) },
+  available: { type: Array, default: () => [] }
 });
 
 const { t } = useI18n();
@@ -16,13 +17,24 @@ const { t } = useI18n();
   was fixed - a full run overflows the timing buffer, so a ping measured
   afterwards was reading a stale entry.
 */
-const steps = computed(() => [
-  { key: STAGE.PING, label: t("stage.ping") },
-  { key: STAGE.DOWNLOAD, label: t("stage.download") },
-  { key: STAGE.UPLOAD, label: t("stage.upload") }
-]);
+/*
+  Only the stages this run will actually perform.
 
-const ORDER = [STAGE.PING, STAGE.DOWNLOAD, STAGE.UPLOAD];
+  Web and video are skipped when no URL is configured for them, and a stepper
+  that shows a step nothing will ever reach reads as a run that got stuck.
+  `available` comes from the parent, which knows the settings.
+*/
+const steps = computed(() =>
+  [
+    { key: STAGE.PING, label: t("stage.ping") },
+    { key: STAGE.BROWSE, label: t("stage.browse") },
+    { key: STAGE.DOWNLOAD, label: t("stage.download") },
+    { key: STAGE.UPLOAD, label: t("stage.upload") },
+    { key: STAGE.VIDEO, label: t("stage.video") }
+  ].filter((step) => props.available.includes(step.key))
+);
+
+const ORDER = [STAGE.PING, STAGE.BROWSE, STAGE.DOWNLOAD, STAGE.UPLOAD, STAGE.VIDEO];
 
 function stateOf(key) {
   if (props.stage === key) return "active";

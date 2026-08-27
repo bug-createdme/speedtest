@@ -82,6 +82,11 @@ function severity(loaded) {
 
 const hasLoadedLatency = computed(() => test.probeCount > 0);
 
+/* Only shown when the stage actually ran; a "Skip" is configuration, not a
+   result, and rendering it as one would read as a failed web test. */
+const hasBrowse = computed(() => !!test.browseStatus && test.browseStatus !== "Skip");
+const hasVideo = computed(() => !!test.videoStatus && test.videoStatus !== "Skip");
+
 const timings = computed(() =>
   [
     { key: "DNS", value: test.dns },
@@ -255,6 +260,26 @@ const details = computed(() =>
       <p class="loaded-caveat">{{ t('loaded.lossCaveat') }}</p>
     </section>
 
+    <section v-if="hasBrowse || hasVideo" class="extra card">
+      <div v-if="hasBrowse" class="loaded-row">
+        <span class="loaded-label">{{ t('metric.browse') }}</span>
+        <span class="loaded-value">
+          {{ t('browse.result', { bytes: Math.round(test.browseBytes / 1000), time: Math.round(test.browseTime) }) }}
+        </span>
+      </div>
+      <div v-if="hasVideo" class="loaded-row">
+        <span class="loaded-label">{{ t('video.timeToPlay') }}</span>
+        <span class="loaded-value">{{ fmt(test.videoTimeToPlay, 0) }} {{ t('unit.ms') }}</span>
+      </div>
+      <div v-if="hasVideo" class="loaded-row">
+        <span class="loaded-label">{{ t('video.rebuffering') }}</span>
+        <span class="loaded-value">{{ fmt(test.videoRebuffering, 0) }} {{ t('unit.ms') }}</span>
+        <span v-if="test.videoQuality" class="loaded-extra">
+          {{ t('video.quality') }} {{ test.videoQuality }}p
+        </span>
+      </div>
+    </section>
+
     <dl class="details card">
       <div v-for="row in details" :key="row.key" class="detail">
         <dt class="label">{{ row.label }}</dt>
@@ -280,6 +305,13 @@ const details = computed(() =>
 </template>
 
 <style scoped>
+.extra {
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
 .invalid-banner {
   margin: 0;
   padding: var(--sp-3) var(--sp-4);

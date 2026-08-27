@@ -1,6 +1,6 @@
 {
   "telemetry_level": "full",
-  "test_order": "IP_D_U",
+  "test_order": "IPB_D_U",
   "time_dl_max": 12,
   "time_ul_max": 12,
   "time_dlGraceTime": 1.5,
@@ -8,5 +8,11 @@
   "time_auto": false,
   "loaded_latency": true,
   "windvane_sdk_url": "https://g.alicdn.com/superapp-cloud/js-library-windvane/3.1.3/windvane.js",
-  "record_endpoint": ""
+  "record_endpoint": "",
+  "url_browse": "",
+  "browse_target_bytes": 500000,
+  "browse_budget": 4000,
+  "video_url": "",
+  "video_play_seconds": 10,
+  "video_timeout": 30000
 }

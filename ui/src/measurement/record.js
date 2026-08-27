@@ -352,6 +352,41 @@ export function buildRecord(input) {
     PROBE_LOSS_PCT: measuredOrNull(t.probeLoss, Number(t.probeCount) > 0),
     PROBE_SAMPLES: numOrNull(t.probeCount),
 
+    /*
+      ── web access ────────────────────────────────────────────────────
+      Their column is BROWSE_URL_WEIGHT and the pass rule is that it reached
+      500 KB inside the 4s budget - NOT that the page finished, which only 16%
+      of their own samples did. BROWSE_TIME is capped at the budget, matching
+      the cap in every row of their export. See measurement/kpi.js.
+
+      Measured against a resource we can read, not against tiktok or facebook:
+      reading bytes cross-origin needs CORS and none of the sites they use send
+      it. Same indicator, different source - a report comparing the two must
+      say so. See browseTest() in speedtest_worker.js.
+    */
+    BROWSE_STATUS: strOrNull(t.browseStatus),
+    BROWSE_TIME: numOrNull(t.browseTime),
+    BROWSE_BYTES: measuredOrNull(t.browseBytes, !!t.browseStatus && t.browseStatus !== "Skip"),
+
+    /*
+      ── video ─────────────────────────────────────────────────────────
+      PRELOADING_TIME <= 4000ms and REBUFFERING_TIME === 0 are the two video
+      indicators. Rebuffering of 0 is a reading, not an absence - it is the
+      pass condition - so it goes through measuredOrNull.
+    */
+    STREAM_STATUS: strOrNull(t.videoStatus),
+    STREAM_PRELOADING_TIME: numOrNull(t.videoTimeToPlay),
+    STREAM_REBUFFERING_TIME: measuredOrNull(
+      t.videoRebuffering,
+      !!t.videoStatus && t.videoStatus !== "Skip" && Number(t.videoTimeToPlay) > 0
+    ),
+    STREAM_REBUFFER_COUNT: measuredOrNull(
+      t.videoRebufferCount,
+      !!t.videoStatus && t.videoStatus !== "Skip" && Number(t.videoTimeToPlay) > 0
+    ),
+    STREAM_QUALITY_TOTAL_TIME: numOrNull(t.videoTotal),
+    STREAM_QUALITY: numOrNull(t.videoQuality),
+
     /* ── connection setup ───────────────────────────────────────────── */
     SETUP_DNS: numOrNull(t.dns),
     SETUP_TCP: numOrNull(t.tcp),
@@ -431,6 +466,15 @@ export const RECORD_FIELDS = [
   "SPEED_DOWNLOAD_PACKETLOSS",
   "PROBE_LOSS_PCT",
   "PROBE_SAMPLES",
+  "BROWSE_STATUS",
+  "BROWSE_TIME",
+  "BROWSE_BYTES",
+  "STREAM_STATUS",
+  "STREAM_PRELOADING_TIME",
+  "STREAM_REBUFFERING_TIME",
+  "STREAM_REBUFFER_COUNT",
+  "STREAM_QUALITY_TOTAL_TIME",
+  "STREAM_QUALITY",
   "SETUP_DNS",
   "SETUP_TCP",
   "SETUP_TLS",
