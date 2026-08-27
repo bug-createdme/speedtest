@@ -1,13 +1,44 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import MetricCard from "../components/MetricCard.vue";
 import SparkLine from "../components/SparkLine.vue";
 import { test } from "../state/test.js";
 import { SCREEN, connectionType, goTo } from "../state/ui.js";
+import { shareSummary, summaryText } from "../report/share.js";
 import { useI18n } from "../i18n/index.js";
 
 defineEmits(["again"]);
 const { t } = useI18n();
+
+/*
+  Share the run as text, which is what the super-app bridge can actually carry
+  (see report/share.js - neither of its share methods takes a file).
+
+  The result ID is the point of it: the screen already tells the user to quote
+  it to network operations, and until now the only way to do that was to copy it
+  off the screen by hand.
+*/
+const shareState = ref("");
+
+async function share() {
+  shareState.value = "";
+  const how = await shareSummary(
+    summaryText({
+      testId: test.testId,
+      download: test.download,
+      upload: test.upload,
+      ping: test.ping,
+      server: test.usedServer ? test.usedServer.name || test.usedServer.server : "",
+      operator: test.isp,
+      place: test.location ? test.location.aal1 : "",
+      at: new Date().toISOString()
+    })
+  );
+  /* Only the clipboard needs saying: a share sheet is its own feedback, and
+     announcing "shared" over the top of one is noise. */
+  if (how === "clipboard") shareState.value = t("share.copied");
+  else if (how === "none") shareState.value = t("share.blocked");
+}
 
 function fmt(value, decimals) {
   return Number(value || 0).toFixed(decimals);
@@ -297,6 +328,10 @@ const details = computed(() =>
       <button type="button" class="btn btn-primary btn-block" @click="$emit('again')">
         {{ t("action.testAgain") }}
       </button>
+      <button type="button" class="btn btn-ghost btn-block" @click="share">
+        {{ t("action.share") }}
+      </button>
+      <p v-if="shareState" class="share-state" role="status">{{ shareState }}</p>
       <button type="button" class="btn btn-ghost btn-block" @click="goTo(SCREEN.HISTORY)">
         {{ t("action.history") }}
       </button>
@@ -533,6 +568,13 @@ const details = computed(() =>
 }
 
 .id-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.share-state {
+  margin: 0;
   font-size: var(--fs-xs);
   color: var(--text-muted);
   text-align: center;

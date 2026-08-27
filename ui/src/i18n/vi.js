@@ -14,6 +14,7 @@ export default {
   "action.chooseServer": "Chọn máy chủ khác",
   "action.showDetails": "Chi tiết lỗi",
   "action.hideDetails": "Ẩn chi tiết",
+  "action.share": "Chia sẻ kết quả",
   "action.exportExcel": "Xuất Excel",
   "action.exportCsv": "Xuất CSV",
   "action.clearHistory": "Xoá lịch sử",
@@ -97,6 +98,8 @@ export default {
   "sync.storedLocally": "Đã lưu {count} kết quả trên máy",
   "sync.pending": "{count} kết quả đang chờ gửi lên",
   "sync.allSent": "Đã gửi lên toàn bộ kết quả",
+  "share.copied": "Đã sao chép vào bộ nhớ tạm",
+  "share.blocked": "Ứng dụng không chuyển được tệp ra ngoài. Hãy đồng bộ, hoặc mở bằng trình duyệt.",
   "sync.notSent": "Chưa gửi",
   "sync.kept": "Giữ lại {count} kết quả - chưa gửi lên",
 

@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import { clearHistory, history, syncState, toCsv, toXlsx } from "../state/history.js";
 import { XLSX_MIME } from "../report/xlsx.js";
+import { shareFile } from "../report/share.js";
 import { goBack } from "../state/ui.js";
 import { useI18n } from "../i18n/index.js";
 
@@ -28,6 +29,10 @@ const syncLabel = computed(() => {
 /* Two-step inline confirm rather than window.confirm(): same reason the error
    screen exists - a native dialog in a WebView is unstyled and untranslatable. */
 const confirming = ref(false);
+
+/* Set when both the share sheet and the download refused, which is a real
+   outcome in a locked-down WebView and must not look like success. */
+const exportFailed = ref(false);
 
 const grouped = computed(() => {
   const today = new Date();
@@ -56,27 +61,21 @@ const grouped = computed(() => {
 /*
   Hand a file to the user.
 
-  Known limitation, and not one this function can fix: a WebView often refuses
-  an <a download> outright. The super-app bridge can share content, which is the
-  route out of that, and it is the share half of CHANGE-011 rather than
-  something to fake here - a silent no-op would be worse than a button that
-  visibly does nothing on the platforms that block it.
+  Share sheet first, download second. A mini-app WebView often refuses an
+  <a download> outright, and the whole export is worthless if the file cannot
+  leave the handset - so the platform's own share sheet is tried first, where it
+  will take a file. See report/share.js: the super-app bridge is no help for
+  this particular case, because neither of its share methods accepts a file.
 */
-function save(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  // Revoking immediately can cancel the download on some WebViews; one frame
-  // is enough for the navigation to have been picked up.
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+async function save(blob, filename, mime) {
+  const how = await shareFile(blob, filename, mime);
+  /* "none" means both routes refused. Saying so beats a button that looks like
+     it worked. */
+  exportFailed.value = how === "none";
 }
 
 function downloadCsv() {
-  save(new Blob([toCsv()], { type: "text/csv;charset=utf-8" }), "speedtest-history.csv");
+  save(new Blob([toCsv()], { type: "text/csv;charset=utf-8" }), "speedtest-history.csv", "text/csv");
 }
 
 /*
@@ -85,7 +84,7 @@ function downloadCsv() {
   rewrite a subscriber number or a timestamp on the way in.
 */
 function downloadXlsx() {
-  save(new Blob([toXlsx()], { type: XLSX_MIME }), "speedtest-history.xlsx");
+  save(new Blob([toXlsx()], { type: XLSX_MIME }), "speedtest-history.xlsx", XLSX_MIME);
 }
 
 /*
@@ -172,6 +171,7 @@ function fmtSpeed(value) {
     </ul>
 
     <div class="actions">
+      <p v-if="exportFailed" class="export-failed">{{ t("share.blocked") }}</p>
       <button
         v-if="grouped.length"
         type="button"
@@ -344,6 +344,13 @@ function fmtSpeed(value) {
 
 .actions .btn-block {
   width: 100%;
+}
+
+.export-failed {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  text-align: center;
 }
 
 .clear-link {

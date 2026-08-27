@@ -20,6 +20,7 @@ export default {
   "action.chooseServer": "Choose another server",
   "action.showDetails": "Error details",
   "action.hideDetails": "Hide details",
+  "action.share": "Share result",
   "action.exportExcel": "Export Excel",
   "action.exportCsv": "Export CSV",
   "action.clearHistory": "Clear history",
@@ -103,6 +104,8 @@ export default {
   "sync.storedLocally": "{count} saved on this device",
   "sync.pending": "{count} waiting to upload",
   "sync.allSent": "All results uploaded",
+  "share.copied": "Copied to the clipboard",
+  "share.blocked": "This app could not hand the file over. Sync it instead, or open the app in a browser.",
   "sync.notSent": "Not uploaded",
   "sync.kept": "{count} kept - not uploaded yet",
 

@@ -39,6 +39,7 @@ export default {
   "action.chooseServer": "ເລືອກເຊີບເວີອື່ນ",
   "action.showDetails": "ລາຍລະອຽດຂໍ້ຜິດພາດ",
   "action.hideDetails": "ເຊື່ອງລາຍລະອຽດ",
+  "action.share": "ແບ່ງປັນຜົນ",
   "action.exportExcel": "ສົ່ງອອກ Excel",
   "action.exportCsv": "ສົ່ງອອກ CSV",
   "action.clearHistory": "ລຶບປະຫວັດ",
@@ -122,6 +123,8 @@ export default {
   "sync.storedLocally": "ບັນທຶກ {count} ຜົນລົງເຄື່ອງແລ້ວ",
   "sync.pending": "{count} ຜົນກຳລັງລໍຖ້າສົ່ງຂຶ້ນ",
   "sync.allSent": "ສົ່ງຜົນທັງໝົດຂຶ້ນແລ້ວ",
+  "share.copied": "ຄັດລອກແລ້ວ",
+  "share.blocked": "ບໍ່ສາມາດແບ່ງປັນໄຟລ໌ໄດ້",
   "sync.notSent": "ຍັງບໍ່ໄດ້ສົ່ງ",
   "sync.kept": "ເກັບໄວ້ {count} ຜົນ - ຍັງບໍ່ໄດ້ສົ່ງ",
 

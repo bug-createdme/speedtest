@@ -186,6 +186,71 @@ export async function fetchNetworkType() {
 }
 
 /*
+  Did a share actually open the sheet?
+
+  The documented response is {code: 200, message: "...", success: true}, but
+  getUserLocation taught us not to trust one shape from this bridge: the same
+  super-app wraps some replies in {ret, status, data} with data as a JSON
+  string. So every plausible marker of success is accepted, and anything else -
+  including a reply that arrived but says nothing - counts as "did not share",
+  which is the answer that makes the caller fall back rather than claim it
+  worked.
+
+  Pulled out so it can be tested without a super-app in the loop.
+*/
+export function parseShareResult(result) {
+  if (!result) return false;
+
+  let payload = result;
+  if (typeof payload === "object" && payload.data !== undefined) {
+    payload = payload.data;
+    if (typeof payload === "string") {
+      try {
+        payload = JSON.parse(payload);
+      } catch (e) {
+        payload = result;
+      }
+    }
+  }
+
+  const ret = String(result.ret || "").toUpperCase();
+  const status = String(result.status || "").toUpperCase();
+  if (ret === "HY_SUCCESS" || status === "SUCCESS") return true;
+
+  if (payload && typeof payload === "object") {
+    if (payload.success === true) return true;
+    if (Number(payload.code) === 200) return true;
+  }
+  return false;
+}
+
+/**
+ * Hand text or a URL to the platform's share sheet.
+ *
+ * @param {string} content what to share
+ * @returns {Promise<boolean>} whether the sheet opened
+ */
+export async function shareContent(content) {
+  if (!content) return false;
+  const result = await call("CustomServiceJs", "shareContent", { content: String(content) });
+  return parseShareResult(result);
+}
+
+/**
+ * Hand an image to the platform's share sheet.
+ *
+ * @param {string} base64Image the image, base64 encoded
+ * @returns {Promise<boolean>} whether the sheet opened
+ */
+export async function shareBase64Image(base64Image) {
+  if (!base64Image) return false;
+  const result = await call("CustomServiceJs", "shareBase64Image", {
+    base64Image: String(base64Image)
+  });
+  return parseShareResult(result);
+}
+
+/*
   Start the bridge. Fire-and-forget by design.
 
   Nothing waits on this. The reference blocks its app mount behind the auth
