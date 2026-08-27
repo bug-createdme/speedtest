@@ -108,6 +108,32 @@ export const test = reactive({
   packetLoss: 0,
   probeCount: 0,
 
+  /*
+    Everything the engine measures beyond the two headline speeds. Surfaced by
+    speedtest_worker.js as of the "export what was already measured" change;
+    consumed by measurement/record.js, which is the only place that decides
+    what a stored result looks like.
+
+    Speeds are Mbit/s here, matching the rest of this object. record.js
+    converts to the kbit/s the partner's report format uses - that conversion
+    belongs at the boundary, not in the UI state.
+  */
+  dlPeak: 0,
+  ulPeak: 0,
+  dlBytes: 0,
+  ulBytes: 0,
+  dlDuration: 0,
+  ulDuration: 0,
+  dlSlowstart: 0,
+  ulSlowstart: 0,
+  dlAvgIncSlowstart: 0,
+  ulAvgIncSlowstart: 0,
+  dlJitter: 0,
+  ulJitter: 0,
+  pingSamples: 0,
+  dlStreams: 0,
+  ulStreams: 0,
+
   dlProgress: 0,
   ulProgress: 0,
   pingProgress: 0,
@@ -146,8 +172,8 @@ let engineSettings = {};
   these through would be harmless - but settings.json would then read as if
   the engine had a WindVane option, which it does not.
 */
-const UI_SETTING_KEYS = ["windvane_sdk_url"];
-export const uiSettings = { windvane_sdk_url: "" };
+const UI_SETTING_KEYS = ["windvane_sdk_url", "record_endpoint"];
+export const uiSettings = { windvane_sdk_url: "", record_endpoint: "" };
 let instance = null;
 let selectionPoll = null;
 let stallTimer = null;
@@ -157,6 +183,26 @@ let stallKey = "";
 function num(value) {
   const n = parseFloat(value);
   return Number.isFinite(n) ? n : 0;
+}
+
+/*
+  Does reaching this server address leave the page's own origin?
+
+  Handles every shape a server-list entry is allowed to take: an absolute
+  https:// URL, a protocol-relative "//host/" (which the engine resolves
+  against the page protocol), and a bare path like "/backend" that
+  docker/entrypoint.sh generates for the standalone layout. Anything
+  unparseable is treated as same-origin, which is the conservative answer: it
+  omits cors=true rather than adding a preflight to a request that never
+  needed one.
+*/
+function isCrossOrigin(address) {
+  if (typeof address !== "string" || address === "") return false;
+  try {
+    return new URL(address, window.location.href).origin !== window.location.origin;
+  } catch (e) {
+    return false;
+  }
 }
 
 /*
@@ -186,6 +232,21 @@ function resetRun() {
   test.ulPingMax = 0;
   test.packetLoss = 0;
   test.probeCount = 0;
+  test.dlPeak = 0;
+  test.ulPeak = 0;
+  test.dlBytes = 0;
+  test.ulBytes = 0;
+  test.dlDuration = 0;
+  test.ulDuration = 0;
+  test.dlSlowstart = 0;
+  test.ulSlowstart = 0;
+  test.dlAvgIncSlowstart = 0;
+  test.ulAvgIncSlowstart = 0;
+  test.dlJitter = 0;
+  test.ulJitter = 0;
+  test.pingSamples = 0;
+  test.dlStreams = 0;
+  test.ulStreams = 0;
   test.dlProgress = 0;
   test.ulProgress = 0;
   test.pingProgress = 0;
@@ -403,7 +464,41 @@ export function startTest() {
   instance = newInstance();
   const server = test.selectedServer || test.servers[0] || null;
   test.usedServer = server;
-  if (server) instance.setSelectedServer(server);
+  if (server) {
+    /*
+      Tell the engine this run is cross-origin, when it is.
+
+      The engine only turns "multi point of test" mode on inside addTestPoint()
+      and loadServerList() (speedtest.js:121,146). This file uses neither on the
+      instance that does the measuring - beginServerSelection() calls
+      addTestPoints() on a SEPARATE selector instance, and the run itself goes
+      through setSelectedServer(), which does not set the flag.
+
+      With mpot false the worker builds its URLs without the "cors=true"
+      parameter, and every backend in this repo (backend/empty.php,
+      backend/garbage.php, backend/getIP.php, and speedtest-go the same way)
+      only emits Access-Control-Allow-Origin when that parameter is present. So
+      every transfer request was blocked by the browser before it left, and the
+      run produced nothing.
+
+      This was invisible until now for one reason: there is no production test
+      server yet, so the only configuration anyone had exercised was the
+      same-origin one, where no CORS headers are needed. The moment a real test
+      point is configured - which is the whole production architecture, a
+      mini-app served by the super-app measuring against a server elsewhere -
+      the symptom is a run that stalls after server selection succeeds and then
+      fails on the stall watchdog with "Can't reach the test server". Server
+      selection keeps working throughout, because its own ping helper appends
+      cors=true by hand (speedtest.js:196), which is what makes the failure look
+      like a dead test server rather than a client bug.
+
+      Set from the address rather than hard-coded, so the same build stays
+      correct for the standalone same-origin deployment, where turning mpot on
+      would add a preflight and a preliminary POST for nothing.
+    */
+    instance.setParameter("mpot", isCrossOrigin(server.server));
+    instance.setSelectedServer(server);
+  }
 
   /*
     Point telemetry at the test server, not at wherever the page came from.
@@ -476,6 +571,21 @@ export function startTest() {
     test.ulPingMax = num(data.ulPingMaxStatus);
     test.packetLoss = num(data.packetLossStatus);
     test.probeCount = num(data.probeCountStatus);
+    test.dlPeak = num(data.dlPeakStatus);
+    test.ulPeak = num(data.ulPeakStatus);
+    test.dlBytes = num(data.dlBytesStatus);
+    test.ulBytes = num(data.ulBytesStatus);
+    test.dlDuration = num(data.dlDurationStatus);
+    test.ulDuration = num(data.ulDurationStatus);
+    test.dlSlowstart = num(data.dlSlowstartStatus);
+    test.ulSlowstart = num(data.ulSlowstartStatus);
+    test.dlAvgIncSlowstart = num(data.dlAvgIncSlowstartStatus);
+    test.ulAvgIncSlowstart = num(data.ulAvgIncSlowstartStatus);
+    test.dlJitter = num(data.dlJitterStatus);
+    test.ulJitter = num(data.ulJitterStatus);
+    test.pingSamples = num(data.pingSamplesStatus);
+    test.dlStreams = num(data.dlStreams);
+    test.ulStreams = num(data.ulStreams);
     if (data.testId) test.testId = data.testId;
 
     if (data.clientIp) {
