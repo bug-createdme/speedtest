@@ -1,4 +1,5 @@
 import { call, isSuperApp } from "../bridge/windvane.js";
+import { locateArea } from "./geo.js";
 
 /*
   Where a measurement was taken.
@@ -112,25 +113,49 @@ function geolocate(timeoutMs) {
   });
 }
 
+/*
+  Attach the administrative area to a fix.
+
+  Done here rather than in buildRecord so the record layer stays a mapper: it
+  writes down what it is handed, and deciding what a coordinate means belongs to
+  the context layer. With no boundary table loaded, locateArea returns null and
+  the province and district stay null - see context/geo.js for why the table
+  ships empty.
+*/
+function withArea(fix) {
+  if (!fix) return null;
+  const area = locateArea(fix.lat, fix.lng);
+  return {
+    lat: fix.lat,
+    lng: fix.lng,
+    accuracy: fix.accuracy === undefined ? null : fix.accuracy,
+    aal1: area ? area.aal1 : null,
+    aal2: area ? area.aal2 : null,
+    country: area ? area.country : null
+  };
+}
+
 /**
  * The device's current position, or null if none can be had.
  *
  * Resolves - never rejects. Accuracy is a number only when it came from
  * navigator.geolocation; the bridge does not report one, so a bridge fix
- * carries accuracy: null rather than a fabricated zero.
+ * carries accuracy: null rather than a fabricated zero. Province and district
+ * are resolved from the loaded boundary table, and are null without one.
  *
  * @param {number} [timeoutMs] give up after this long
- * @returns {Promise<null|{lat: number, lng: number, accuracy: number|null}>}
+ * @returns {Promise<null|{lat: number, lng: number, accuracy: number|null,
+ *          aal1: string|null, aal2: string|null, country: string|null}>}
  */
 export async function fetchLocation(timeoutMs) {
   const t = timeoutMs || 8000;
   if (isSuperApp()) {
     const result = await call("CustomServiceJs", "getUserLocation", {}, t);
     const parsed = parseUserLocation(result);
-    if (parsed) return { lat: parsed.lat, lng: parsed.lng, accuracy: null };
+    if (parsed) return withArea({ lat: parsed.lat, lng: parsed.lng, accuracy: null });
     /* The bridge did not answer usably. Fall through and try the web API, which
        inside the super-app WebView is usually blocked and resolves null - no
        worse than the null we already have. */
   }
-  return geolocate(t);
+  return withArea(await geolocate(t));
 }

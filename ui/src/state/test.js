@@ -220,6 +220,7 @@ let engineSettings = {};
 const UI_SETTING_KEYS = [
   "windvane_sdk_url",
   "record_endpoint",
+  "area_table_url",
   "video_url",
   "video_play_seconds",
   "video_timeout"
@@ -227,6 +228,10 @@ const UI_SETTING_KEYS = [
 export const uiSettings = {
   windvane_sdk_url: "",
   record_endpoint: "",
+  /* Boundary polygons for province/district. Empty means coordinates are stored
+     without an administrative area rather than with a guessed one - see
+     context/geo.js. */
+  area_table_url: "",
   /* Empty skips the video stage entirely - nothing here invents a URL. */
   video_url: "",
   video_play_seconds: 10,

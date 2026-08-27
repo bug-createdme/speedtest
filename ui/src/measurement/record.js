@@ -293,17 +293,21 @@ export function buildRecord(input) {
       falling back to navigator.geolocation). Accuracy is a number only from the
       web fallback; the bridge reports none, so it stays null rather than 0.
 
-      Country/province/district and the full address are still null: turning a
-      coordinate into an administrative area is reverse geocoding that is not
-      built yet (CHANGE-012 needs the province). Declared here so storage, sync
-      payload and export keep the same shape when it lands.
+      Province, district and country are resolved from the coordinates by
+      context/geo.js before they get here - this layer only writes down what it
+      is handed. They are null whenever no boundary table is configured, which
+      is the shipping default; see geo.js for why inventing one would be worse
+      than leaving the column empty.
+
+      FULL_ADDRESS stays null: a street address is not derivable from a boundary
+      table, and nothing in the report is grouped by one.
     */
     LOCATION_LAT: input.location ? finiteOrNull(input.location.lat) : null,
     LOCATION_LNG: input.location ? finiteOrNull(input.location.lng) : null,
     LOCATION_ACCURACY: input.location ? finiteOrNull(input.location.accuracy) : null,
-    LOCATION_COUNTRY: null,
-    LOCATION_AAL1: null, // province
-    LOCATION_AAL2: null, // district
+    LOCATION_COUNTRY: input.location ? strOrNull(input.location.country) : null,
+    LOCATION_AAL1: input.location ? strOrNull(input.location.aal1) : null, // province
+    LOCATION_AAL2: input.location ? strOrNull(input.location.aal2) : null, // district
     LOCATION_FULL_ADDRESS: null,
 
     /*

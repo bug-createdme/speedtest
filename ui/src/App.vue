@@ -19,6 +19,7 @@ import {
 } from "./state/test.js";
 import { loadHistory, saveResult } from "./state/history.js";
 import { initOutbox } from "./sync/outbox.js";
+import { loadAreaTable } from "./context/geo.js";
 import { isdn } from "./bridge/windvane.js";
 import {
   SCREEN,
@@ -56,6 +57,13 @@ onMounted(async () => {
   await initEngine();
   await initOutbox(uiSettings.record_endpoint);
   await loadHistory();
+  /*
+    Last and unawaited by anything: the boundary table is only needed by the
+    time a run FINISHES, which is at least a measurement away, and it is a file
+    download that must never sit between the user and the Start button. With no
+    table configured this resolves immediately and does nothing.
+  */
+  loadAreaTable(uiSettings.area_table_url);
 });
 
 /*

@@ -417,16 +417,48 @@ describe("location fields", () => {
     expect(r.LOCATION_LAT).toBe(0);
   });
 
-  /* A coordinate is not yet a place: reverse geocoding is not built, so the
-     administrative fields stay null even when there is a fix. */
-  it("leaves country, province, district and address null", () => {
+  /* The area is resolved by context/geo.js before it gets here; this layer
+     writes down what it is handed. */
+  it("stores the province and district resolved from the coordinates", () => {
     const r = buildRecord({
       test: fullRun(),
-      location: { lat: 17.9757, lng: 102.6331, accuracy: 12 }
+      location: {
+        lat: 17.9757,
+        lng: 102.6331,
+        accuracy: 12,
+        aal1: "Vientiane Capital",
+        aal2: "Chanthabuly",
+        country: "Laos"
+      }
     });
+    expect(r.LOCATION_AAL1).toBe("Vientiane Capital");
+    expect(r.LOCATION_AAL2).toBe("Chanthabuly");
+    expect(r.LOCATION_COUNTRY).toBe("Laos");
+  });
+
+  /*
+    A fix with no boundary table loaded - the shipping default. The coordinates
+    are still stored; the province is empty rather than guessed, which is the
+    whole point of geo.js shipping without polygons.
+  */
+  it("keeps the coordinates but leaves the area null when nothing resolved it", () => {
+    const r = buildRecord({
+      test: fullRun(),
+      location: { lat: 17.9757, lng: 102.6331, accuracy: null }
+    });
+    expect(r.LOCATION_LAT).toBe(17.9757);
     expect(r.LOCATION_COUNTRY).toBeNull();
     expect(r.LOCATION_AAL1).toBeNull();
     expect(r.LOCATION_AAL2).toBeNull();
+  });
+
+  /* A street address is not derivable from boundary polygons, and nothing in
+     the report is grouped by one. */
+  it("leaves the full address null", () => {
+    const r = buildRecord({
+      test: fullRun(),
+      location: { lat: 17.9757, lng: 102.6331, aal1: "Vientiane Capital" }
+    });
     expect(r.LOCATION_FULL_ADDRESS).toBeNull();
   });
 });
