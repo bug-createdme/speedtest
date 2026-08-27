@@ -10,6 +10,18 @@
   Before release: have the Unitel team review this file. Until they do, the
   language picker still offers Lao - hiding it would be worse, since it hides
   the gap - but this header is the record that it is provisional.
+
+  2026-08-27 (CHANGE-019): an orthographic-consistency pass was applied - not a
+  native review, so the warning above still stands. The file mixed decomposed
+  and ligature forms of the same characters; all were normalised to the modern
+  ligature forms the file already used elsewhere, with no change to meaning or
+  pronunciation:
+    - ຄວາມຫນ່ວງ (ຫ+ນ) -> ຄວາມໜ່ວງ (ໜ), 6x  [latency]
+    - ໂຫລດ (ຫ+ລ) -> ໂຫຼດ (ຫຼ), 10x          [download/upload]
+    - ລົ້ມເຫລວ (ຫ+ລ) -> ລົ້ມເຫຼວ (ຫຼ), 2x     [failed]
+  Still open for the native reviewer: term choices worth confirming - jitter
+  (ການແກວ່ງ), probe (ສຳຫຼວດ), Unknown network (ບໍ່ຮູ້) - and the flow of the
+  longer error/history sentences.
 */
 export default {
   "lang.name": "ລາວ",
@@ -32,23 +44,23 @@ export default {
   "action.change": "ປ່ຽນ",
   "action.logout": "ອອກຈາກລະບົບ",
 
-  "stage.ping": "ຄວາມຫນ່ວງ",
-  "stage.download": "ດາວໂຫລດ",
-  "stage.upload": "ອັບໂຫລດ",
+  "stage.ping": "ຄວາມໜ່ວງ",
+  "stage.download": "ດາວໂຫຼດ",
+  "stage.upload": "ອັບໂຫຼດ",
 
   "status.idle": "ພ້ອມ",
   "status.findingServers": "ກຳລັງຄົ້ນຫາເຊີບເວີທີ່ໃກ້ທີ່ສຸດ",
   "status.serversChecked": "ກວດແລ້ວ {done}/{total}",
-  "status.measuringPing": "ກຳລັງວັດຄວາມຫນ່ວງ",
-  "status.measuringDownload": "ກຳລັງວັດຄວາມໄວດາວໂຫລດ",
-  "status.measuringUpload": "ກຳລັງວັດຄວາມໄວອັບໂຫລດ",
+  "status.measuringPing": "ກຳລັງວັດຄວາມໜ່ວງ",
+  "status.measuringDownload": "ກຳລັງວັດຄວາມໄວດາວໂຫຼດ",
+  "status.measuringUpload": "ກຳລັງວັດຄວາມໄວອັບໂຫຼດ",
   "status.elapsed": "{elapsed}s / {total}s",
   "status.fastest": "ໄວທີ່ສຸດ",
   "status.done": "ທົດສອບສຳເລັດ",
 
-  "metric.download": "ດາວໂຫລດ",
-  "metric.upload": "ອັບໂຫລດ",
-  "metric.ping": "ຄວາມຫນ່ວງ",
+  "metric.download": "ດາວໂຫຼດ",
+  "metric.upload": "ອັບໂຫຼດ",
+  "metric.ping": "ຄວາມໜ່ວງ",
   "metric.jitter": "ການແກວ່ງ",
   "metric.pingIdle": "ຕອນຫວ່າງ",
   "metric.pingLoaded": "ຕອນມີການໃຊ້ງານ",
@@ -66,19 +78,19 @@ export default {
   "result.testId": "ລະຫັດຜົນ",
   "result.testIdHint": "ແຈ້ງລະຫັດນີ້ໃຫ້ຝ່າຍປະຕິບັດການເຄືອຂ່າຍ ເພື່ອເອີ້ນເບິ່ງການທົດສອບຄັ້ງນີ້",
 
-  "loaded.title": "ຄວາມຫນ່ວງເມື່ອມີການໃຊ້ງານ",
-  "loaded.explain": "ຄວາມຫນ່ວງທີ່ການເຊື່ອມຕໍ່ເພີ່ມຂຶ້ນເມື່ອກຳລັງໃຊ້ງານ. ຖ້າເພີ່ມຫຼາຍ ການໂທ ແລະ ປະຊຸມທາງວິດີໂອຈະຂາດຕອນ ເຖິງວ່າຄວາມໄວຈະເບິ່ງຄືດີ.",
-  "loaded.download": "ຕອນດາວໂຫລດ",
-  "loaded.upload": "ຕອນອັບໂຫລດ",
+  "loaded.title": "ຄວາມໜ່ວງເມື່ອມີການໃຊ້ງານ",
+  "loaded.explain": "ຄວາມໜ່ວງທີ່ການເຊື່ອມຕໍ່ເພີ່ມຂຶ້ນເມື່ອກຳລັງໃຊ້ງານ. ຖ້າເພີ່ມຫຼາຍ ການໂທ ແລະ ປະຊຸມທາງວິດີໂອຈະຂາດຕອນ ເຖິງວ່າຄວາມໄວຈະເບິ່ງຄືດີ.",
+  "loaded.download": "ຕອນດາວໂຫຼດ",
+  "loaded.upload": "ຕອນອັບໂຫຼດ",
   "loaded.idle": "ຕອນຫວ່າງ",
   "loaded.worst": "ສູງສຸດ {value} ms",
   "loaded.increase": "+{value} ms",
-  "loaded.loss": "ການສຳຫຼວດລົ້ມເຫລວ",
+  "loaded.loss": "ການສຳຫຼວດລົ້ມເຫຼວ",
   "loaded.lossSamples": "ສຳຫຼວດ {count} ຄັ້ງ",
-  "loaded.lossCaveat": "ອັດຕາການສຳຫຼວດທີ່ລົ້ມເຫລວ ຫຼື ໝົດເວລາ. TCP ປົກປິດການສູນເສຍແພັກເກັດເລັກນ້ອຍໄດ້ ສະນັ້ນຄ່າສູງໝາຍເຖິງບັນຫາຈິງ ແຕ່ຄ່າ 0 ບໍ່ໄດ້ພິສູດວ່າສາຍສະອາດ.",
+  "loaded.lossCaveat": "ອັດຕາການສຳຫຼວດທີ່ລົ້ມເຫຼວ ຫຼື ໝົດເວລາ. TCP ປົກປິດການສູນເສຍແພັກເກັດເລັກນ້ອຍໄດ້ ສະນັ້ນຄ່າສູງໝາຍເຖິງບັນຫາຈິງ ແຕ່ຄ່າ 0 ບໍ່ໄດ້ພິສູດວ່າສາຍສະອາດ.",
 
   "result.summary":
-    "ດາວໂຫລດ {download} Mbps, ອັບໂຫລດ {upload} Mbps, ຄວາມຫນ່ວງ {ping} ມິນລິວິນາທີ",
+    "ດາວໂຫຼດ {download} Mbps, ອັບໂຫຼດ {upload} Mbps, ຄວາມໜ່ວງ {ping} ມິນລິວິນາທີ",
 
   "error.title": "ບໍ່ສາມາດຕິດຕໍ່ເຊີບເວີທົດສອບໄດ້",
   "error.body":
