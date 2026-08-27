@@ -8,6 +8,7 @@ import {
   parseUserAgent,
   recordsToCsv
 } from "../../ui/src/measurement/record.js";
+import { summarise } from "../../ui/src/measurement/kpi.js";
 
 /*
   These tests exist to hold three rules that are easy to break by accident and
@@ -207,6 +208,117 @@ describe("interrupted runs", () => {
     });
     expect(record.MEASUREMENT_VALID).toBe(true);
     expect(record.MEASUREMENT_INVALID_REASON).toBeNull();
+  });
+});
+
+describe("web and video fields", () => {
+  /*
+    CHANGE-010 added the browse and video stages, and their figures reach the
+    record the same untested way the speed figures used to. They follow the
+    absent-is-not-zero rule with one extra turn: for these two, a measured zero
+    IS the reading the KPI grades on - 0 bytes is "moved nothing" (a fail), 0ms
+    rebuffering is "no freezing" (the pass). So a stage that ran and measured a
+    zero must keep the zero, while a stage that never ran must be null - and
+    telling those apart is exactly what buildRecord does here and nothing pins.
+  */
+  const built = (over) => buildRecord({ test: fullRun(over) });
+
+  it("passes a measured browse result through", () => {
+    const r = built({ browseStatus: "Timeout", browseTime: 4000, browseBytes: 1_050_000 });
+    expect(r.BROWSE_STATUS).toBe("Timeout");
+    expect(r.BROWSE_TIME).toBe(4000);
+    expect(r.BROWSE_BYTES).toBe(1_050_000);
+  });
+
+  /*
+    A stage that never ran is null, not 0. A stored 0 reads as "the connection
+    moved nothing in the window" - a real fail the web rate must count - so a
+    skipped run cannot be allowed to look like one.
+  */
+  it("stores a skipped or absent browse as null bytes", () => {
+    // A non-zero count here: the status, not the number, is what nulls it - a
+    // Skip discards even a real-looking byte count rather than grading on it.
+    expect(built({ browseStatus: "Skip", browseBytes: 800_000 }).BROWSE_BYTES).toBeNull();
+    const absent = built({});
+    expect(absent.BROWSE_STATUS).toBeNull();
+    expect(absent.BROWSE_BYTES).toBeNull();
+  });
+
+  /* The zero that must survive: a browse that ran and moved nothing is the
+     worst kind of pass/fail row, and nulling it would drop it from the rate. */
+  it("keeps a measured zero bytes on a browse that ran", () => {
+    expect(built({ browseStatus: "Timeout", browseBytes: 0 }).BROWSE_BYTES).toBe(0);
+  });
+
+  it("passes a video that played through, keeping a measured zero rebuffering", () => {
+    const r = built({
+      videoStatus: "OK",
+      videoTimeToPlay: 1200,
+      videoRebuffering: 0,
+      videoRebufferCount: 0,
+      videoTotal: 10_000,
+      videoQuality: 720
+    });
+    expect(r.STREAM_STATUS).toBe("OK");
+    expect(r.STREAM_PRELOADING_TIME).toBe(1200);
+    // 0 is the pass condition for "không bị dừng hình", not an absence.
+    expect(r.STREAM_REBUFFERING_TIME).toBe(0);
+    expect(r.STREAM_REBUFFER_COUNT).toBe(0);
+    expect(r.STREAM_QUALITY).toBe(720);
+  });
+
+  /*
+    A video that never started has no time-to-play, and rebuffering is
+    undefined for it - a clip that never played cannot have "zero freezing".
+    Both must be null, or a never-started run would score as a clean pass on
+    the no-freeze indicator, which grades at 90%.
+  */
+  it("nulls rebuffering when the video never started, even if a zero was passed in", () => {
+    const r = built({
+      videoStatus: "Timeout",
+      videoTimeToPlay: 0,
+      videoRebuffering: 0,
+      videoRebufferCount: 0
+    });
+    expect(r.STREAM_PRELOADING_TIME).toBeNull();
+    expect(r.STREAM_REBUFFERING_TIME).toBeNull();
+    expect(r.STREAM_REBUFFER_COUNT).toBeNull();
+  });
+
+  it("stores a skipped video as all nulls", () => {
+    const r = built({ videoStatus: "Skip" });
+    expect(r.STREAM_STATUS).toBe("Skip");
+    expect(r.STREAM_PRELOADING_TIME).toBeNull();
+    expect(r.STREAM_REBUFFERING_TIME).toBeNull();
+    expect(r.STREAM_REBUFFER_COUNT).toBeNull();
+  });
+
+  /*
+    The contract between this file and kpi.js: the field names buildRecord
+    writes are the ones samplePasses reads. A rename on either side makes every
+    web and video sample silently unmeasurable, and no per-metric test catches
+    it because each side uses its own synthetic record. One run through both
+    ends pins the names together.
+  */
+  it("produces a record the KPI summary can grade on all five indicators", () => {
+    const record = buildRecord({
+      test: fullRun({
+        browseStatus: "Timeout",
+        browseTime: 4000,
+        browseBytes: 900_000,
+        videoStatus: "OK",
+        videoTimeToPlay: 1200,
+        videoRebuffering: 0,
+        videoRebufferCount: 0
+      }),
+      connection: "4G",
+      connectionSource: "bridge"
+    });
+    const summary = summarise([record]);
+    for (const name of ["download", "upload", "web", "videoPlay", "videoFreeze"]) {
+      expect(summary.metrics[name].measured, name).toBe(1);
+      expect(summary.metrics[name].verdict, name).toBe(true);
+    }
   });
 });
 
