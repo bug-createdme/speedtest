@@ -46,6 +46,8 @@
   not change shape when it lands.
 */
 
+import { normaliseOperator } from "../context/operator.js";
+
 /* Bumped when the shape changes in a way a reader has to know about. */
 export const RECORD_VERSION = 1;
 
@@ -227,6 +229,7 @@ export function buildRecord(input) {
   );
   const startedAt = input.startedAt || Date.now();
   const finishedAt = input.finishedAt || Date.now();
+  const net = netType(input.connection, input.connectionSource);
 
   return {
     /* ── envelope, ours not nPerf's ──────────────────────────────────── */
@@ -253,9 +256,18 @@ export function buildRecord(input) {
     /* ── network ────────────────────────────────────────────────────── */
     ISP: strOrNull(t.isp),
     MOBILE_ISP: strOrNull(t.isp),
+    /*
+      The raw ISP normalised to one of the three report carriers - the key the
+      whole report is grouped by. Nulled on a wifi or ethernet run: there the AS
+      name is the router's ISP, not the mobile carrier, and filing it as one
+      would invent a carrier the run never measured. On an unknown network it is
+      still resolved (best effort), because NET_TYPE null already marks the row
+      as unverified. See context/operator.js.
+    */
+    MOBILE_OPERATOR: net === "wifi" || net === "ethernet" ? null : normaliseOperator(t.isp),
     IPV4: strOrNull(t.ip),
     IPV6: null,
-    NET_TYPE: netType(input.connection, input.connectionSource),
+    NET_TYPE: net,
     NET_CELL_GEN: cellGeneration(input.connection, input.connectionSource),
     NET_NAME: strOrNull(input.connection),
     /* Kept so a null NET_TYPE can be told apart from "we never asked". */
@@ -435,6 +447,7 @@ export const RECORD_FIELDS = [
   "ISDN",
   "ISP",
   "MOBILE_ISP",
+  "MOBILE_OPERATOR",
   "IPV4",
   "NET_TYPE",
   "NET_CELL_GEN",

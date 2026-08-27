@@ -185,6 +185,58 @@ describe("network classification", () => {
   });
 });
 
+describe("carrier from ISP", () => {
+  /*
+    CHANGE-012: the record carries the carrier the report groups by, normalised
+    from the ISP name rather than typed in. Two rules matter beyond the mapping
+    itself - a wifi run must not be filed under a mobile carrier, and an
+    unclassified network is still resolved best-effort.
+  */
+  it("normalises the ISP into a report carrier on a mobile run", () => {
+    const record = buildRecord({
+      test: fullRun({ isp: "Unitel Mobile LA, Laos" }),
+      connection: "4G",
+      connectionSource: "bridge"
+    });
+    expect(record.NET_TYPE).toBe("mobile");
+    expect(record.MOBILE_OPERATOR).toBe("Unitel");
+    // The raw name is still kept alongside the normalised one.
+    expect(record.MOBILE_ISP).toBe("Unitel Mobile LA, Laos");
+  });
+
+  /*
+    On wifi the AS name is the router's ISP, not the mobile carrier. Filing it
+    as one would invent a carrier the run never measured, so it is nulled even
+    though the same string maps cleanly on a mobile run.
+  */
+  it("refuses to name a carrier on a wifi run", () => {
+    const record = buildRecord({
+      test: fullRun({ isp: "Unitel Mobile LA, Laos" }),
+      connection: "WIFI",
+      connectionSource: "bridge"
+    });
+    expect(record.NET_TYPE).toBe("wifi");
+    expect(record.MOBILE_OPERATOR).toBeNull();
+  });
+
+  /* Outside the super-app the network cannot be classified; the carrier is
+     still resolved, and NET_TYPE null is what marks the row unverified. */
+  it("still resolves the carrier on an unclassified network", () => {
+    const record = buildRecord({ test: fullRun({ isp: "ETL Company LA, Laos" }) });
+    expect(record.NET_TYPE).toBeNull();
+    expect(record.MOBILE_OPERATOR).toBe("ETL");
+  });
+
+  it("leaves the carrier null when the ISP is not one of the three", () => {
+    const record = buildRecord({
+      test: fullRun({ isp: "Some Home Broadband" }),
+      connection: "4G",
+      connectionSource: "bridge"
+    });
+    expect(record.MOBILE_OPERATOR).toBeNull();
+  });
+});
+
 describe("interrupted runs", () => {
   it("marks a run whose network changed, and says why", () => {
     const record = buildRecord({
