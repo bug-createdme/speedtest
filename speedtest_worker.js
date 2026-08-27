@@ -23,6 +23,50 @@ let ulPingStatus = ""; // average ping in ms measured while the upload test was 
 let ulPingMaxStatus = ""; // worst ping in ms seen during the upload test
 let packetLossStatus = ""; // percentage of latency probes that failed or timed out. Read the caveat where the probe is implemented before trusting a zero here
 let probeCountStatus = 0; // how many probes the figure above is based on
+
+/*
+	Everything below was already being measured and then thrown away.
+
+	The transfer loops track total bytes and elapsed time in order to compute an
+	average; the grace period is timed in order to know when to start counting;
+	the ping test counts its own samples. None of it left the worker, so the
+	stored result could only ever say "23.4 Mbps" - not how long the run took,
+	how much data it cost the subscriber, or whether that average came out of a
+	steady line or a spiky one.
+
+	The field names mirror the nPerf export the partner's report is built from
+	(BÁO CÁO TỔNG HỢP ĐO KIỂM.xlsb, sheet "1_DL nPert (thô)"), so the mapping in
+	ui/src/measurement/record.js stays a rename rather than a calculation.
+
+	Reporting units, fixed here so nothing downstream has to guess:
+	  - speeds in Mbit/s, same convention and overhead compensation as dlStatus
+	  - durations in milliseconds
+	  - byte counts raw
+*/
+let dlPeakStatus = ""; // best 200ms window seen during the download, Mbit/s
+let ulPeakStatus = ""; // same for the upload
+let dlBytesStatus = 0; // bytes pulled, INCLUDING the grace period - this is what the run cost the subscriber's data allowance, not what the average was computed from
+let ulBytesStatus = 0;
+let dlDurationStatus = 0; // ms of measured transfer, excluding grace
+let ulDurationStatus = 0;
+let dlSlowstartStatus = 0; // ms actually spent in grace before measurement began. Not the same as the configured time_dlGraceTime: on a link too slow to deliver a single chunk the reset is skipped and this runs longer
+let ulSlowstartStatus = 0;
+let dlAvgIncSlowstartStatus = ""; // average over the WHOLE transfer including grace, Mbit/s. Always <= dlStatus; the gap between them is what the warm-up cost
+let ulAvgIncSlowstartStatus = "";
+let dlJitterStatus = ""; // variation of the latency probes taken during the download, ms
+let ulJitterStatus = "";
+let pingSamplesStatus = 0; // how many idle ping samples pingStatus/jitterStatus are drawn from
+
+/*
+	Bytes per second to the same Mbit/s figure dlStatus reports, so a peak and an
+	average sitting next to each other are the same kind of number. Returns ""
+	rather than "0.00" when there is nothing to report - a missing measurement
+	and a measured zero must not look alike downstream.
+*/
+function toSpeedStatus(bytesPerSecond) {
+	if (!(bytesPerSecond > 0) || !isFinite(bytesPerSecond)) return "";
+	return ((bytesPerSecond * 8 * settings.overheadCompensationFactor) / (settings.useMebibits ? 1048576 : 1000000)).toFixed(2);
+}
 let dlProgress = 0; //progress of download test 0-1
 let ulProgress = 0; //progress of upload test 0-1
 let pingProgress = 0; //progress of ping+jitter test 0-1
@@ -237,7 +281,22 @@ this.addEventListener("message", function(e) {
 				ulPingStatus: ulPingStatus,
 				ulPingMaxStatus: ulPingMaxStatus,
 				packetLossStatus: packetLossStatus,
-				probeCountStatus: probeCountStatus
+				probeCountStatus: probeCountStatus,
+				dlPeakStatus: dlPeakStatus,
+				ulPeakStatus: ulPeakStatus,
+				dlBytesStatus: dlBytesStatus,
+				ulBytesStatus: ulBytesStatus,
+				dlDurationStatus: dlDurationStatus,
+				ulDurationStatus: ulDurationStatus,
+				dlSlowstartStatus: dlSlowstartStatus,
+				ulSlowstartStatus: ulSlowstartStatus,
+				dlAvgIncSlowstartStatus: dlAvgIncSlowstartStatus,
+				ulAvgIncSlowstartStatus: ulAvgIncSlowstartStatus,
+				dlJitterStatus: dlJitterStatus,
+				ulJitterStatus: ulJitterStatus,
+				pingSamplesStatus: pingSamplesStatus,
+				dlStreams: settings.xhr_dlMultistream,
+				ulStreams: settings.xhr_ulMultistream
 			})
 		);
 	}
@@ -424,6 +483,19 @@ this.addEventListener("message", function(e) {
 		ulPingMaxStatus = "";
 		packetLossStatus = "";
 		probeCountStatus = 0;
+		dlPeakStatus = "";
+		ulPeakStatus = "";
+		dlBytesStatus = 0;
+		ulBytesStatus = 0;
+		dlDurationStatus = 0;
+		ulDurationStatus = 0;
+		dlSlowstartStatus = 0;
+		ulSlowstartStatus = 0;
+		dlAvgIncSlowstartStatus = "";
+		ulAvgIncSlowstartStatus = "";
+		dlJitterStatus = "";
+		ulJitterStatus = "";
+		pingSamplesStatus = 0;
 		loadedLatency = { dl: { sent: 0, lost: 0, samples: [] }, ul: { sent: 0, lost: 0, samples: [] } };
 	}
 });
@@ -630,6 +702,26 @@ function publishLoadedLatency() {
 	probeCountStatus = totalSent;
 	packetLossStatus = totalSent > 0 ? ((totalLost / totalSent) * 100).toFixed(2) : "";
 
+	/*
+		Average, worst, and spread.
+
+		The spread is what the nPerf export calls SPEED_*_LOADED_JITTER, and it
+		is the figure that separates a link which is uniformly slow under load
+		from one that is mostly fine and occasionally stalls for a second. Two
+		links can report the same 120ms average and be completely different to
+		use; only the spread says which is which.
+
+		Computed as the standard deviation of the probe round trips, over the
+		same samples the average is drawn from - no extra requests, no change to
+		how anything is measured.
+
+		⚠ The nPerf documentation does not state which spread statistic it uses.
+		Standard deviation is the defensible default and it is calculated in
+		exactly one place, here, so it is a one-line change if a comparison
+		against nPerf's own numbers shows it means mean-absolute-deviation or
+		consecutive-difference jitter instead. Do that comparison before these
+		two figures are put side by side with theirs in a report.
+	*/
 	const summarize = function(samples) {
 		if (samples.length === 0) return null;
 		let sum = 0;
@@ -638,18 +730,32 @@ function publishLoadedLatency() {
 			sum += samples[i];
 			if (samples[i] > max) max = samples[i];
 		}
-		return { avg: (sum / samples.length).toFixed(2), max: max.toFixed(2) };
+		const mean = sum / samples.length;
+		// One sample has no spread to speak of; reporting 0.00 there would read
+		// as "perfectly steady" rather than "not enough data".
+		let jitter = "";
+		if (samples.length > 1) {
+			let sqSum = 0;
+			for (let i = 0; i < samples.length; i++) {
+				const d = samples[i] - mean;
+				sqSum += d * d;
+			}
+			jitter = Math.sqrt(sqSum / samples.length).toFixed(2);
+		}
+		return { avg: mean.toFixed(2), max: max.toFixed(2), jitter: jitter };
 	};
 
 	const d = summarize(dl.samples);
 	if (d) {
 		dlPingStatus = d.avg;
 		dlPingMaxStatus = d.max;
+		dlJitterStatus = d.jitter;
 	}
 	const u = summarize(ul.samples);
 	if (u) {
 		ulPingStatus = u.avg;
 		ulPingMaxStatus = u.max;
+		ulJitterStatus = u.jitter;
 	}
 }
 // download test, calls done function when it's over
@@ -663,6 +769,22 @@ function dlTest(done) {
 		bonusT = 0, //how many milliseconds the test has been shortened by (higher on faster connections)
 		graceTimeDone = false, //set to true after the grace time is past
 		failed = false; // set to true if a stream fails
+	/*
+		A second, parallel accounting that the grace-time reset never touches.
+
+		totLoaded/startT above are deliberately reset when the grace period ends,
+		so the reported average covers steady state only. That is right for the
+		headline number and wrong for two other questions: how much data the run
+		actually cost the subscriber (every byte counts, warm-up included), and
+		how much the warm-up dragged the throughput down. grossT0/grossLoaded
+		answer those.
+	*/
+	const grossT0 = startT;
+	let grossLoaded = 0.0;
+	/* Start of the 200ms window peak tracking compares against. */
+	let windowLoaded = 0.0,
+		windowT = 0;
+	let peakBps = 0;
 	xhr = [];
 	// function to create a download stream using XHR. streams are slightly delayed so that they will not end at the same time
 	const testStreamXhr = function(i, delay) {
@@ -684,6 +806,7 @@ function dlTest(done) {
 					const loadDiff = event.loaded <= 0 ? 0 : event.loaded - prevLoaded;
 					if (isNaN(loadDiff) || !isFinite(loadDiff) || loadDiff < 0) return; // just in case
 					totLoaded += loadDiff;
+					grossLoaded += loadDiff;
 					prevLoaded = event.loaded;
 				}.bind(this);
 				xhr[i].onload = function() {
@@ -756,7 +879,10 @@ function dlTest(done) {
 									return;
 								}
 								const len = result.value ? result.value.length : 0;
-								if (len > 0 && isFinite(len)) totLoaded += len;
+								if (len > 0 && isFinite(len)) {
+									totLoaded += len;
+									grossLoaded += len;
+								}
 								return pump();
 							});
 						};
@@ -787,6 +913,7 @@ function dlTest(done) {
 			const t = new Date().getTime() - startT;
 			if (graceTimeDone) dlProgress = (t + bonusT) / (settings.time_dl_max * 1000);
 			if (t < 200) return;
+			dlBytesStatus = grossLoaded;
 			if (!graceTimeDone) {
 				if (t > 1000 * settings.time_dlGraceTime) {
 					if (totLoaded > 0) {
@@ -795,11 +922,36 @@ function dlTest(done) {
 						bonusT = 0;
 						totLoaded = 0.0;
 					}
+					// Measured from the true start, so a link too slow to deliver
+					// a chunk inside the configured grace reports the longer
+					// warm-up it actually had rather than the configured one.
+					dlSlowstartStatus = new Date().getTime() - grossT0;
+					windowLoaded = totLoaded;
+					windowT = 0;
 					resetLoadedLatencyPhase("dl");
 					graceTimeDone = true;
 				}
 			} else {
 				const speed = totLoaded / (t / 1000.0);
+				/*
+					Peak: the best single 200ms window, not the best running
+					average. The running average can only ever converge on the
+					mean, so a link that bursts to 60 Mbps and collapses to 5
+					looks identical to a steady 20 - which is precisely the
+					distinction operations is looking for at a congested cell.
+				*/
+				const windowMs = t - windowT;
+				const windowBytes = totLoaded - windowLoaded;
+				if (windowMs > 0 && windowBytes > 0) {
+					const inst = windowBytes / (windowMs / 1000.0);
+					if (inst > peakBps) peakBps = inst;
+					windowLoaded = totLoaded;
+					windowT = t;
+				}
+				dlPeakStatus = toSpeedStatus(peakBps);
+				dlDurationStatus = t;
+				const grossMs = new Date().getTime() - grossT0;
+				if (grossMs > 0) dlAvgIncSlowstartStatus = toSpeedStatus(grossLoaded / (grossMs / 1000.0));
 				if (settings.time_auto) {
 					//decide how much to shorten the test. Every 200ms, the test is shortened by the bonusT calculated here
 					const bonus = (5.0 * speed) / 100000;
@@ -852,6 +1004,12 @@ function ulTest(done) {
 			bonusT = 0, //how many milliseconds the test has been shortened by (higher on faster connections)
 			graceTimeDone = false, //set to true after the grace time is past
 			failed = false; // set to true if a stream fails
+		/* Accounting the grace-time reset does not touch - see dlTest(). */
+		const grossT0 = startT;
+		let grossLoaded = 0.0;
+		let windowLoaded = 0.0,
+			windowT = 0;
+		let peakBps = 0;
 		xhr = [];
 		// function to create an upload stream. streams are slightly delayed so that they will not end at the same time
 		const testStream = function(i, delay) {
@@ -877,6 +1035,7 @@ function ulTest(done) {
 						xhr[i].onload = xhr[i].onerror = function() {
 							tverb("ul stream progress event (ie11wa)");
 							totLoaded += reqsmall.size;
+							grossLoaded += reqsmall.size;
 							testStream(i, 0);
 						};
 						xhr[i].open("POST", uploadUrl(settings.url_ul), true);
@@ -897,6 +1056,7 @@ function ulTest(done) {
 							const loadDiff = event.loaded <= 0 ? 0 : event.loaded - prevLoaded;
 							if (isNaN(loadDiff) || !isFinite(loadDiff) || loadDiff < 0) return; // just in case
 							totLoaded += loadDiff;
+							grossLoaded += loadDiff;
 							prevLoaded = event.loaded;
 						}.bind(this);
 						xhr[i].upload.onload = function() {
@@ -946,6 +1106,7 @@ function ulTest(done) {
 				const t = new Date().getTime() - startT;
 				if (graceTimeDone) ulProgress = (t + bonusT) / (settings.time_ul_max * 1000);
 				if (t < 200) return;
+				ulBytesStatus = grossLoaded;
 				if (!graceTimeDone) {
 					if (t > 1000 * settings.time_ulGraceTime) {
 						if (totLoaded > 0) {
@@ -954,11 +1115,26 @@ function ulTest(done) {
 							bonusT = 0;
 							totLoaded = 0.0;
 						}
+						ulSlowstartStatus = new Date().getTime() - grossT0;
+						windowLoaded = totLoaded;
+						windowT = 0;
 						resetLoadedLatencyPhase("ul");
 						graceTimeDone = true;
 					}
 				} else {
 					const speed = totLoaded / (t / 1000.0);
+					const windowMs = t - windowT;
+					const windowBytes = totLoaded - windowLoaded;
+					if (windowMs > 0 && windowBytes > 0) {
+						const inst = windowBytes / (windowMs / 1000.0);
+						if (inst > peakBps) peakBps = inst;
+						windowLoaded = totLoaded;
+						windowT = t;
+					}
+					ulPeakStatus = toSpeedStatus(peakBps);
+					ulDurationStatus = t;
+					const grossMs = new Date().getTime() - grossT0;
+					if (grossMs > 0) ulAvgIncSlowstartStatus = toSpeedStatus(grossLoaded / (grossMs / 1000.0));
 					if (settings.time_auto) {
 						//decide how much to shorten the test. Every 200ms, the test is shortened by the bonusT calculated here
 						const bonus = (5.0 * speed) / 100000;
@@ -1054,6 +1230,14 @@ function pingTest(done) {
 				idlePingSum += instspd;
 				idlePingCount++;
 				idlePingAvgStatus = (idlePingSum / idlePingCount).toFixed(2);
+				/*
+					How many samples the ping and jitter figures rest on
+					(SPEED_LATENCY_SAMPLES in the nPerf export). Reported because
+					count_ping is configurable and because a run that lost pings
+					to xhr_ignoreErrors=2 ends with fewer than it asked for -
+					which is exactly when the reported minimum is least reliable.
+				*/
+				pingSamplesStatus = idlePingCount;
 			}
 			pingStatus = ping.toFixed(2);
 			jitterStatus = jitter.toFixed(2);
