@@ -97,5 +97,12 @@ export default {
   "a11y.gauge": "Current speed: {value} megabits per second",
   "a11y.progress": "Test progress",
   "a11y.home": "Home",
-  "a11y.langSwitch": "Language"
+  "a11y.langSwitch": "Language",
+
+  // Sync queue (sync/outbox.js)
+  "sync.storedLocally": "{count} saved on this device",
+  "sync.pending": "{count} waiting to upload",
+  "sync.allSent": "All results uploaded",
+  "sync.notSent": "Not uploaded",
+  "sync.kept": "{count} kept - not uploaded yet"
 };

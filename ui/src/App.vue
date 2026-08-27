@@ -14,21 +14,48 @@ import {
   hasResult,
   initEngine,
   startTest,
-  test
+  test,
+  uiSettings
 } from "./state/test.js";
 import { loadHistory, saveResult } from "./state/history.js";
+import { initOutbox } from "./sync/outbox.js";
+import { isdn } from "./bridge/windvane.js";
 import {
   SCREEN,
+  connectionSource,
   connectionType,
   detectConnection,
   goTo,
   screen
 } from "./state/ui.js";
 
-onMounted(() => {
-  loadHistory();
+/* Stamped into every record so a result can be tied to the build that made it. */
+const APP_VERSION = __APP_VERSION__;
+
+/*
+  When the run in hand started.
+
+  The engine reports elapsed fractions, not wall-clock times, so START_DATETIME_UTC
+  has to be taken here. Captured on the Start press rather than derived by
+  subtracting a duration at the end, which would silently absorb server
+  selection and any stall into the measurement window.
+*/
+let runStartedAt = Date.now();
+
+onMounted(async () => {
   detectConnection();
-  initEngine();
+  /*
+    Awaited in order, and each step needs the one before it:
+      - initEngine reads settings.json, which is where record_endpoint lives
+      - initOutbox imports any pre-outbox localStorage history into the queue
+      - loadHistory reads the store, so it must run after that import, or the
+        screen opens empty on the one launch where the import happens
+    None of this blocks the Start button: server selection is started inside
+    initEngine and left to finish on its own.
+  */
+  await initEngine();
+  await initOutbox(uiSettings.record_endpoint);
+  await loadHistory();
 });
 
 /*
@@ -54,19 +81,30 @@ watch(
       test.error = { kind: "no-result" };
       return;
     }
+    /*
+      The whole run, not four numbers of it.
+
+      measurement/record.js decides what a stored measurement contains; this
+      only supplies the context the engine cannot know - which server was used,
+      what the platform calls the connection, who the subscriber is, and when
+      the run started. See state/history.js for where it goes.
+    */
     saveResult({
-      download: test.download,
-      upload: test.upload,
-      ping: test.ping,
-      jitter: test.jitter,
-      server: test.usedServer ? test.usedServer.name || test.usedServer.server : "",
-      connection: connectionType.value
+      test,
+      server: test.usedServer,
+      connection: connectionType.value,
+      connectionSource: connectionSource.value,
+      isdn: isdn.value,
+      appVersion: APP_VERSION,
+      startedAt: runStartedAt,
+      finishedAt: Date.now()
     });
     goTo(SCREEN.RESULT);
   }
 );
 
 function onStart() {
+  runStartedAt = Date.now();
   startTest();
   goTo(SCREEN.TESTING);
 }

@@ -104,5 +104,12 @@ export default {
   "a11y.gauge": "ຄວາມໄວປັດຈຸບັນ: {value} ເມກາບິດຕໍ່ວິນາທີ",
   "a11y.progress": "ຄວາມຄືບໜ້າການທົດສອບ",
   "a11y.home": "ໜ້າຫຼັກ",
-  "a11y.langSwitch": "ພາສາ"
+  "a11y.langSwitch": "ພາສາ",
+
+  // Sync queue (sync/outbox.js)
+  "sync.storedLocally": "ບັນທຶກ {count} ຜົນລົງເຄື່ອງແລ້ວ",
+  "sync.pending": "{count} ຜົນກຳລັງລໍຖ້າສົ່ງຂຶ້ນ",
+  "sync.allSent": "ສົ່ງຜົນທັງໝົດຂຶ້ນແລ້ວ",
+  "sync.notSent": "ຍັງບໍ່ໄດ້ສົ່ງ",
+  "sync.kept": "ເກັບໄວ້ {count} ຜົນ - ຍັງບໍ່ໄດ້ສົ່ງ"
 };

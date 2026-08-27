@@ -1,81 +1,106 @@
 import { ref } from "vue";
 
-/*
-  Local test history. docs/analysis-phase1.md §13 #16: the old UI stored
-  nothing, so every result was lost the moment the page changed.
+import { buildRecord, recordsToCsv } from "../measurement/record.js";
+import {
+  STATUS,
+  allEntries,
+  clearAll,
+  clearSent,
+  enqueue,
+  syncState
+} from "../sync/outbox.js";
 
-  Deliberately localStorage and nothing else. It keeps working offline, it
-  needs no backend (there is none yet), and it never leaves the device - which
-  matters because a result carries the user's IP and ISP.
+/*
+  The history screen's view of the outbox.
+
+  This used to be the storage layer itself: a seven-field entry per run in
+  localStorage, which was the only copy of a measurement and was deleted on
+  sign-out. It is now a thin read over sync/outbox.js, so the list on screen
+  and the queue waiting to reach the server are the same records rather than
+  two stores that drift.
+
+  The exported surface is unchanged apart from being asynchronous, because the
+  underlying store is.
 */
 
-const STORAGE_KEY = "unitel-speedtest.history";
-const MAX_ENTRIES = 100;
-
+/* Rows for the screen: the full record plus what the list actually renders. */
 export const history = ref([]);
+/* Re-exported so the screen can show queue state without importing the outbox. */
+export { syncState };
 
-function read() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (e) {
-    // Corrupt or unavailable storage. An unusable history is not a reason to
-    // block the test itself, so start empty.
-    return [];
-  }
-}
-
-function write(entries) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  } catch (e) {
-    // Quota or private mode. The in-memory list stays usable for this session.
-  }
-}
-
-export function loadHistory() {
-  history.value = read();
-}
-
-export function saveResult(result) {
-  const entry = {
-    at: new Date().toISOString(),
-    download: result.download,
-    upload: result.upload,
-    ping: result.ping,
-    jitter: result.jitter,
-    server: result.server || "",
-    connection: result.connection || ""
+function toRow(entry) {
+  const r = entry.record || {};
+  return {
+    id: entry.id,
+    at: entry.at,
+    status: entry.status,
+    attempts: entry.attempts,
+    /* kbit/s in the record, Mbit/s on screen - see measurement/record.js. */
+    download: r.SPEED_DOWNLOAD_AVG ? r.SPEED_DOWNLOAD_AVG / 1000 : 0,
+    upload: r.SPEED_UPLOAD_AVG ? r.SPEED_UPLOAD_AVG / 1000 : 0,
+    ping: r.SPEED_LATENCY_MIN || 0,
+    jitter: r.SPEED_LATENCY_JITTER || 0,
+    server: r.SPEED_SERVER_POOL_NAME || "",
+    connection: r.NET_NAME || "",
+    /*
+      Location is null until the context layer lands. The screen renders
+      nothing rather than a placeholder, so the gap stays visible instead of
+      looking like a value.
+    */
+    lat: r.LOCATION_LAT,
+    lng: r.LOCATION_LNG,
+    place: r.LOCATION_AAL1 || null,
+    record: r
   };
-  const next = [entry, ...history.value].slice(0, MAX_ENTRIES);
-  history.value = next;
-  write(next);
 }
 
-export function clearHistory() {
-  history.value = [];
-  write([]);
+export async function loadHistory() {
+  const entries = await allEntries();
+  history.value = entries.map(toRow);
 }
 
+/**
+ * Store one finished run.
+ *
+ * Builds the canonical record, puts it in the outbox (which persists it before
+ * attempting any send), and refreshes the list.
+ */
+export async function saveResult(input) {
+  const record = buildRecord(input);
+  await enqueue(record);
+  await loadHistory();
+  return record;
+}
+
+/**
+ * Clear the history the user can see.
+ *
+ * Deliberately two different operations behind one intent: everything the
+ * server has acknowledged is deleted outright, and anything still queued is
+ * kept, because deleting it would throw away the only copy of a measurement
+ * that has not reached anyone yet. The screen says how many were kept.
+ *
+ * @param {boolean} includeUnsent true only from an explicit "delete unsent too"
+ * @returns {number} how many entries were kept because they are still pending
+ */
+export async function clearHistory(includeUnsent) {
+  if (includeUnsent) {
+    await clearAll();
+  } else {
+    await clearSent();
+  }
+  await loadHistory();
+  return history.value.filter((row) => row.status !== STATUS.SENT).length;
+}
+
+/**
+ * The full records as CSV, not the four columns the screen shows.
+ *
+ * The old export carried seven fields. This one carries every column the
+ * partner's report format defines, with empty cells for what has not been
+ * collected yet - which is also the quickest way for anyone to see exactly
+ * which columns are still missing.
+ */
 export function toCsv() {
-  const header = "timestamp,download_mbps,upload_mbps,ping_ms,jitter_ms,server,connection";
-  const rows = history.value.map((e) =>
-    [
-      e.at,
-      e.download,
-      e.upload,
-      e.ping,
-      e.jitter,
-      csvField(e.server),
-      csvField(e.connection)
-    ].join(",")
-  );
-  return [header, ...rows].join("\n");
-}
-
-function csvField(value) {
-  const s = String(value || "");
-  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  return recordsToCsv(history.value.map((row) => row.record));
 }

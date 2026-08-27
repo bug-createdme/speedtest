@@ -201,9 +201,20 @@ function engineFiles() {
   };
 }
 
+/*
+  Build identity, stamped into every stored measurement (APP_VERSION).
+
+  A result that cannot be tied back to the build that produced it is a result
+  nobody can act on when the numbers look wrong: "the app reported 3 Mbps" is
+  not a bug report until you know which app.
+*/
+const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+const APP_VERSION = JSON.stringify(pkg.version || "0.0.0");
+
 export default defineConfig({
   base: "./",
   root: fileURLToPath(new URL(".", import.meta.url)),
+  define: { __APP_VERSION__: APP_VERSION },
   plugins: [vue(), engineFiles()],
   build: {
     outDir: path.join(repoRoot, "dist"),

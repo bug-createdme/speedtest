@@ -91,5 +91,12 @@ export default {
   "a11y.gauge": "Tốc độ hiện tại: {value} megabit mỗi giây",
   "a11y.progress": "Tiến trình đo",
   "a11y.home": "Màn hình chính",
-  "a11y.langSwitch": "Ngôn ngữ"
+  "a11y.langSwitch": "Ngôn ngữ",
+
+  // Sync queue (sync/outbox.js)
+  "sync.storedLocally": "Đã lưu {count} kết quả trên máy",
+  "sync.pending": "{count} kết quả đang chờ gửi lên",
+  "sync.allSent": "Đã gửi lên toàn bộ kết quả",
+  "sync.notSent": "Chưa gửi",
+  "sync.kept": "Giữ lại {count} kết quả - chưa gửi lên"
 };

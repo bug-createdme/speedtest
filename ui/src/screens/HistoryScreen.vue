@@ -1,10 +1,28 @@
 <script setup>
 import { computed, ref } from "vue";
-import { clearHistory, history, toCsv } from "../state/history.js";
+import { clearHistory, history, syncState, toCsv } from "../state/history.js";
 import { goBack } from "../state/ui.js";
 import { useI18n } from "../i18n/index.js";
 
 const { t, locale } = useI18n();
+
+/*
+  What the queue is doing, in one line.
+
+  Worth showing rather than hiding: a surveyor out of coverage needs to know
+  their morning's work is held and will go up, not wonder whether it vanished.
+  While no server endpoint is configured this says so plainly instead of
+  pretending to sync.
+*/
+const syncLabel = computed(() => {
+  const s = syncState.value;
+  if (s.waitingForEndpoint) {
+    return s.pending > 0 ? t("sync.storedLocally", { count: s.pending }) : "";
+  }
+  if (s.pending > 0) return t("sync.pending", { count: s.pending });
+  if (s.sent > 0) return t("sync.allSent");
+  return "";
+});
 
 /* Two-step inline confirm rather than window.confirm(): same reason the error
    screen exists - a native dialog in a WebView is unstyled and untranslatable. */
@@ -48,8 +66,16 @@ function download() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function doClear() {
-  clearHistory();
+/*
+  Deletes what the server already has and KEEPS what it does not.
+
+  Clearing used to mean losing measurements that had never reached anyone. The
+  count of what survived is reported back so the user sees that rather than
+  assuming the list failed to clear.
+*/
+const keptAfterClear = ref(0);
+async function doClear() {
+  keptAfterClear.value = await clearHistory(false);
   confirming.value = false;
 }
 
@@ -66,6 +92,8 @@ function fmtSpeed(value) {
 <template>
   <section class="history">
     <h2 class="section-title">{{ t("history.title") }}</h2>
+    <p v-if="syncLabel" class="sync-line" role="status">{{ syncLabel }}</p>
+    <p v-if="keptAfterClear" class="sync-line">{{ t("sync.kept", { count: keptAfterClear }) }}</p>
 
     <p v-if="!grouped.length" class="empty card">{{ t("history.empty") }}</p>
 
@@ -108,7 +136,16 @@ function fmtSpeed(value) {
           </span>
         </div>
 
-        <p v-if="entry.server" class="entry-server">{{ entry.server }}</p>
+        <p class="entry-meta">
+          <!-- Connection type was stored from the first version and never
+               shown; the specification asks for it in this list. -->
+          <span v-if="entry.connection" class="entry-chip">{{ entry.connection }}</span>
+          <span v-if="entry.place" class="entry-chip">{{ entry.place }}</span>
+          <span v-if="entry.status !== 'sent'" class="entry-chip entry-chip-pending">
+            {{ t("sync.notSent") }}
+          </span>
+          <span v-if="entry.server" class="entry-server">{{ entry.server }}</span>
+        </p>
       </li>
     </ul>
 
@@ -148,6 +185,33 @@ function fmtSpeed(value) {
 </template>
 
 <style scoped>
+.sync-line {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin: calc(-1 * var(--sp-2)) 0 0;
+}
+
+.entry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0 0;
+}
+
+.entry-chip {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+  border-radius: var(--radius-pill);
+  padding: 0 var(--sp-2);
+}
+
+.entry-chip-pending {
+  color: var(--warning);
+  background: var(--warning-tint);
+}
+
 .history {
   display: flex;
   flex-direction: column;

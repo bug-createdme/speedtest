@@ -59,12 +59,35 @@ export function goBack() {
 export const connectionType = ref("");
 
 /*
+  WHERE that string came from, which matters more than the string.
+
+  "bridge"        the super-app told us the real radio type. Trustworthy.
+  "effectiveType" navigator.connection.effectiveType. NOT a network type: it is
+                  a round-trip-and-throughput bucket, so it answers "4g" for a
+                  fast wifi link and for a desktop on fibre, and it never says
+                  "5g" at all. Usable as a hint on screen, and unusable as the
+                  NET_TYPE / NET_CELL_GEN a report groups by.
+  ""              nothing known.
+
+  Recorded separately rather than encoded into the string because the two
+  sources produce overlapping values ("4G" from either) while meaning
+  completely different things. measurement/record.js reads this to decide
+  whether it is allowed to classify the run as mobile at all - misfiling a
+  wifi measurement as 3G mobile would put a wrong row into exactly the
+  per-network breakdown the report exists to produce.
+*/
+export const connectionSource = ref("");
+
+/*
   The super-app knows the real radio type; navigator.connection is a guess at
   best and absent entirely on iOS. Whenever the bridge answers, its value
   replaces whatever was detected here.
 */
 watch(bridgeNetworkType, value => {
-  if (value) connectionType.value = value;
+  if (value) {
+    connectionType.value = value;
+    connectionSource.value = "bridge";
+  }
 });
 
 export function detectConnection() {
@@ -72,9 +95,12 @@ export function detectConnection() {
     navigator.connection || navigator.mozConnection || navigator.webkitConnection;
   if (!c) return;
   const update = () => {
+    // Never downgrade a real answer from the bridge back to a guess.
+    if (connectionSource.value === "bridge") return;
     connectionType.value = c.effectiveType
       ? String(c.effectiveType).toUpperCase()
       : "";
+    connectionSource.value = connectionType.value ? "effectiveType" : "";
   };
   update();
   if (typeof c.addEventListener === "function") {
