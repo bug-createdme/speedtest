@@ -21,7 +21,7 @@ let dlPingStatus = ""; // average ping in ms measured while the download test wa
 let dlPingMaxStatus = ""; // worst ping in ms seen during the download test
 let ulPingStatus = ""; // average ping in ms measured while the upload test was running
 let ulPingMaxStatus = ""; // worst ping in ms seen during the upload test
-let packetLossStatus = ""; // percentage of latency probes that failed or timed out. Read the caveat where the probe is implemented before trusting a zero here
+let probeLossStatus = ""; // percentage of latency PROBES that failed or timed out. NOT an IP packet loss counter - see the long note above sendProbe() before this number is put in front of anyone
 let probeCountStatus = 0; // how many probes the figure above is based on
 
 /*
@@ -280,7 +280,7 @@ this.addEventListener("message", function(e) {
 				dlPingMaxStatus: dlPingMaxStatus,
 				ulPingStatus: ulPingStatus,
 				ulPingMaxStatus: ulPingMaxStatus,
-				packetLossStatus: packetLossStatus,
+				probeLossStatus: probeLossStatus,
 				probeCountStatus: probeCountStatus,
 				dlPeakStatus: dlPeakStatus,
 				ulPeakStatus: ulPeakStatus,
@@ -481,7 +481,7 @@ this.addEventListener("message", function(e) {
 		dlPingMaxStatus = "";
 		ulPingStatus = "";
 		ulPingMaxStatus = "";
-		packetLossStatus = "";
+		probeLossStatus = "";
 		probeCountStatus = 0;
 		dlPeakStatus = "";
 		ulPeakStatus = "";
@@ -700,7 +700,7 @@ function publishLoadedLatency() {
 	const totalSent = dl.sent + ul.sent;
 	const totalLost = dl.lost + ul.lost;
 	probeCountStatus = totalSent;
-	packetLossStatus = totalSent > 0 ? ((totalLost / totalSent) * 100).toFixed(2) : "";
+	probeLossStatus = totalSent > 0 ? ((totalLost / totalSent) * 100).toFixed(2) : "";
 
 	/*
 		Average, worst, and spread.

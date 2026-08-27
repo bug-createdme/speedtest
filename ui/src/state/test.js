@@ -2,6 +2,7 @@ import { reactive } from "vue";
 
 import { locale } from "../i18n/index.js";
 import { connectionType } from "./ui.js";
+import { compareNetwork, networkSnapshot, watchNetwork } from "../context/network.js";
 import { initBridge, isdn } from "../bridge/windvane.js";
 
 /*
@@ -105,7 +106,7 @@ export const test = reactive({
   dlPingMax: 0,
   ulPing: 0,
   ulPingMax: 0,
-  packetLoss: 0,
+  probeLoss: 0,
   probeCount: 0,
 
   /*
@@ -160,6 +161,18 @@ export const test = reactive({
     of it. Empty when telemetry is off or the write failed.
   */
   testId: "",
+
+  /*
+    Network conditions at both ends of the run, and whether they held.
+
+    A measurement that changed network halfway is not wrong so much as
+    mislabelled: the numbers are real, they just do not belong to the network
+    the row claims. Recorded rather than thrown away, so operations can filter
+    it out and still see how many it lost - see context/network.js.
+  */
+  netStart: null,
+  netEnd: null,
+  invalid: null,
 
   error: null
 });
@@ -230,7 +243,7 @@ function resetRun() {
   test.dlPingMax = 0;
   test.ulPing = 0;
   test.ulPingMax = 0;
-  test.packetLoss = 0;
+  test.probeLoss = 0;
   test.probeCount = 0;
   test.dlPeak = 0;
   test.ulPeak = 0;
@@ -254,6 +267,9 @@ function resetRun() {
   test.ulSamples = [];
   test.aborted = false;
   test.testId = "";
+  test.netStart = null;
+  test.netEnd = null;
+  test.invalid = null;
   test.error = null;
 }
 
@@ -366,6 +382,14 @@ export function chooseServer(server) {
 }
 
 export async function initEngine() {
+  /*
+    A link that drops mid-run would otherwise surface fifteen seconds later as
+    the stall watchdog's "Can't reach the test server", which points the user
+    at the wrong thing. The platform tells us immediately; use it.
+  */
+  watchNetwork(() => {
+    if (test.running) failOffline();
+  });
   await loadSettings();
   /*
     Deliberately not awaited. The bridge only exists inside the super-app, and
@@ -410,6 +434,74 @@ function stopStallWatch() {
 }
 
 /*
+  Backgrounding, which corrupts a measurement without failing it.
+
+  When the app stops being visible - the user takes a call, pulls down the
+  notification shade, switches to another app - the host throttles the page.
+  Timers stop firing at the rate the engine assumes, and requests are held or
+  cancelled. The run keeps going and finishes normally; the numbers just come
+  out low. There is no error anywhere. A surveyor who checks a message
+  mid-measurement gets a plausible-looking bad reading, and it lands in the
+  report as a bad cell.
+
+  So the run is abandoned rather than salvaged. There is no way to correct for
+  an unknown amount of throttling after the fact, and a result that cannot be
+  trusted is worth less than no result: the second costs thirty seconds, the
+  first costs a wrong decision about a base station.
+
+  Deliberately NOT stored, unlike a network change. A network change produces
+  real numbers with the wrong label, which is worth keeping and marking; this
+  produces numbers that are simply wrong.
+*/
+let visibilityHandler = null;
+
+function startVisibilityWatch() {
+  stopVisibilityWatch();
+  if (typeof document === "undefined") return;
+  visibilityHandler = () => {
+    if (!document.hidden) return;
+    if (!test.running) return;
+    failBackgrounded();
+  };
+  document.addEventListener("visibilitychange", visibilityHandler);
+}
+
+function stopVisibilityWatch() {
+  if (visibilityHandler === null) return;
+  try {
+    document.removeEventListener("visibilitychange", visibilityHandler);
+  } catch (e) {
+    // No document (tests, SSR): nothing was ever attached.
+  }
+  visibilityHandler = null;
+}
+
+function failBackgrounded() {
+  stopStallWatch();
+  stopVisibilityWatch();
+  const stage = test.stage;
+  if (instance) {
+    try {
+      instance.abort();
+    } catch (e) {
+      // Same race as abortTest(): the worker may have finished in between.
+    }
+  }
+  test.running = false;
+  /*
+    Marked aborted so the stage watcher in App.vue does not store it - an
+    aborted run is already excluded there, which is exactly the behaviour
+    wanted here.
+  */
+  test.aborted = true;
+  test.error = {
+    kind: "backgrounded",
+    stage,
+    detail: ["Stage: " + stage, "The app was sent to the background mid-measurement"].join("\n")
+  };
+}
+
+/*
   The run is wedged. Stop the worker before reporting it, because a wedged
   worker is not an idle one - a refused ping is retried as fast as the
   connection can fail, which on a handset is a radio held awake for as long as
@@ -422,8 +514,29 @@ function stopStallWatch() {
   ErrorScreen already knows how to reveal and which names the stage and the
   server - the two facts that tell a dead test point apart from a dead link.
 */
+function failOffline() {
+  stopStallWatch();
+  stopVisibilityWatch();
+  const stage = test.stage;
+  if (instance) {
+    try {
+      instance.abort();
+    } catch (e) {
+      // The worker may have finished between the event and here.
+    }
+  }
+  test.running = false;
+  test.aborted = true;
+  test.error = {
+    kind: "offline-during",
+    stage,
+    detail: ["Stage: " + stage, "The device went offline mid-measurement"].join("\n")
+  };
+}
+
 function failStalled() {
   stopStallWatch();
+  stopVisibilityWatch();
   const stage = test.stage;
   const server = test.usedServer;
   if (instance) {
@@ -451,6 +564,38 @@ function failStalled() {
 export function startTest() {
   if (test.running) return;
   resetRun();
+
+  /*
+    Refuse to start with no connection at all.
+
+    Without this the run goes ahead, every request fails, and fifteen seconds
+    later the stall watchdog reports "Can't reach the test server" - blaming
+    infrastructure for something the user can see on their own status bar and
+    fix in one tap. navigator.onLine is only trusted as a negative here; a true
+    reading proves nothing and is not used to claim the link is good.
+  */
+  const before = networkSnapshot();
+  if (!before.online) {
+    test.error = { kind: "offline" };
+    return;
+  }
+
+  /*
+    Already in the background when Start was pressed.
+
+    startVisibilityWatch() below only reacts to the visibilitychange EVENT, so
+    a run that begins while the page is already hidden would never see one and
+    would measure a throttled connection all the way through without ever
+    tripping the check. Rare from a tap, routine from anything that starts a
+    run programmatically. Cheap to close, and the alternative is the worst kind
+    of result: wrong, plausible, and unflagged.
+  */
+  if (typeof document !== "undefined" && document.hidden) {
+    test.error = { kind: "backgrounded", stage: STAGE.IDLE };
+    return;
+  }
+
+  test.netStart = before;
   test.running = true;
   test.stage = STAGE.STARTING;
 
@@ -569,7 +714,7 @@ export function startTest() {
     test.dlPingMax = num(data.dlPingMaxStatus);
     test.ulPing = num(data.ulPingStatus);
     test.ulPingMax = num(data.ulPingMaxStatus);
-    test.packetLoss = num(data.packetLossStatus);
+    test.probeLoss = num(data.probeLossStatus);
     test.probeCount = num(data.probeCountStatus);
     test.dlPeak = num(data.dlPeakStatus);
     test.ulPeak = num(data.ulPeakStatus);
@@ -607,8 +752,16 @@ export function startTest() {
 
   instance.onend = (aborted) => {
     stopStallWatch();
+    stopVisibilityWatch();
     test.running = false;
     test.aborted = aborted;
+    /*
+      Second snapshot, and the comparison. Taken before the stage flips to
+      DONE, because that flip is what App.vue watches to store the result -
+      the verdict has to be on `test` by the time it reads it.
+    */
+    test.netEnd = networkSnapshot();
+    test.invalid = compareNetwork(test.netStart, test.netEnd);
     test.stage = STAGE.DONE;
   };
 
@@ -618,12 +771,14 @@ export function startTest() {
     leaving test.running true with nothing driving it.
   */
   startStallWatch();
+  startVisibilityWatch();
   instance.start();
 }
 
 export function abortTest() {
   if (!instance || !test.running) return;
   stopStallWatch();
+  stopVisibilityWatch();
   try {
     instance.abort();
   } catch (e) {

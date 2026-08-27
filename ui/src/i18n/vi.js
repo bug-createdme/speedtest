@@ -37,7 +37,6 @@ export default {
   "metric.upload": "Tải lên",
   "metric.ping": "Độ trễ",
   "metric.jitter": "Độ dao động",
-  "metric.loss": "Mất gói",
   "metric.pingIdle": "khi rảnh",
   "metric.pingLoaded": "khi tải",
 
@@ -98,5 +97,16 @@ export default {
   "sync.pending": "{count} kết quả đang chờ gửi lên",
   "sync.allSent": "Đã gửi lên toàn bộ kết quả",
   "sync.notSent": "Chưa gửi",
-  "sync.kept": "Giữ lại {count} kết quả - chưa gửi lên"
+  "sync.kept": "Giữ lại {count} kết quả - chưa gửi lên",
+
+  // Interrupted / invalid runs (context/network.js)
+  "error.offlineTitle": "Không có kết nối mạng",
+  "error.offlineBody": "Thiết bị chưa kết nối mạng. Hãy kết nối rồi thử lại — test server không có vấn đề gì.",
+  "error.offlineDuringBody": "Mất kết nối giữa lúc đo nên kết quả đã bị bỏ. Hãy tới nơi có sóng rồi đo lại.",
+  "error.backgroundedTitle": "Phép đo bị gián đoạn",
+  "error.backgroundedBody": "App bị chuyển xuống nền giữa lúc đo. Việc đó làm phép đo chậm lại mà không báo lỗi, nên kết quả đã bị bỏ thay vì ghi nhận thành đường truyền chậm.",
+  "error.hintCoverage": "Di chuyển tới nơi có sóng tốt hơn",
+  "error.hintStayOpen": "Giữ nguyên màn hình này cho tới khi đo xong",
+  "result.invalid.network-changed": "Mạng đã thay đổi trong lúc đo, nên kết quả này có thể thuộc về một kết nối khác với kết nối đang hiển thị.",
+  "result.invalid.went-offline": "Mất kết nối trong lúc đo, nên kết quả này có thể chưa đầy đủ."
 };

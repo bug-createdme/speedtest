@@ -127,6 +127,16 @@ const details = computed(() =>
       user came for, and buried the server the numbers belong to eight rows
       further down.
     -->
+    <!--
+      A result that changed network halfway is real but mislabelled: the
+      numbers belong to a different network than the row claims. Said here
+      rather than only stored, so the person who took the measurement knows to
+      take it again instead of trusting it.
+    -->
+    <p v-if="test.invalid" class="invalid-banner" role="status">
+      {{ t("result.invalid." + test.invalid.reason) }}
+    </p>
+
     <div class="instrument">
       <div class="result-head">
         <span class="done-badge">
@@ -233,7 +243,7 @@ const details = computed(() =>
 
       <div class="loaded-row">
         <span class="loaded-label">{{ t('loaded.loss') }}</span>
-        <span class="loaded-value">{{ fmt(test.packetLoss, 2) }} {{ t('unit.percent') }}</span>
+        <span class="loaded-value">{{ fmt(test.probeLoss, 2) }} {{ t('unit.percent') }}</span>
         <!--
           The sample count is shown, not hidden: a 0.00% drawn from 40 probes is
           a much weaker statement than the number alone suggests, and this is a
@@ -270,6 +280,16 @@ const details = computed(() =>
 </template>
 
 <style scoped>
+.invalid-banner {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--warning);
+  background: var(--warning-tint);
+  color: var(--warning);
+  font-size: var(--fs-sm);
+}
+
 .result {
   display: flex;
   flex-direction: column;

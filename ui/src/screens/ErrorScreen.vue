@@ -16,22 +16,44 @@ const showDetails = ref(false);
   screen says what failed, what the user can actually do about it, and keeps
   both recovery paths reachable.
 */
-const isNoServer = computed(() => test.error && test.error.kind === "no-server");
+const kind = computed(() => (test.error && test.error.kind) || "");
+const isNoServer = computed(() => kind.value === "no-server");
 
-const title = computed(() =>
-  isNoServer.value ? t("error.noServerTitle") : t("error.title")
+/*
+  Say which side of the problem the user is on.
+
+  Every failure used to read "Can't reach the test server", which points at
+  infrastructure. For the two commonest field failures - no signal at all, and
+  the app being backgrounded mid-run - that is simply the wrong answer, and it
+  sends the person looking in a direction where there is nothing to find. The
+  fix is on their screen in both cases.
+*/
+const KINDS = {
+  offline: { title: "error.offlineTitle", body: "error.offlineBody" },
+  "offline-during": { title: "error.offlineTitle", body: "error.offlineDuringBody" },
+  backgrounded: { title: "error.backgroundedTitle", body: "error.backgroundedBody" },
+  "no-server": { title: "error.noServerTitle", body: "error.noServerBody" }
+};
+
+const title = computed(() => t(KINDS[kind.value] ? KINDS[kind.value].title : "error.title"));
+const body = computed(() => t(KINDS[kind.value] ? KINDS[kind.value].body : "error.body"));
+
+/* Choosing a different server cannot help when the device has no link. */
+const isLocalProblem = computed(
+  () => kind.value === "offline" || kind.value === "offline-during" || kind.value === "backgrounded"
 );
-const body = computed(() =>
-  isNoServer.value ? t("error.noServerBody") : t("error.body")
-);
 
-const canChooseServer = computed(() => test.servers.length > 1);
+const canChooseServer = computed(() => test.servers.length > 1 && !isLocalProblem.value);
 
-const hints = computed(() => [
-  t("error.hintNetwork"),
-  t("error.hintVpn"),
-  t("error.hintRetry")
-]);
+const hints = computed(() => {
+  if (kind.value === "backgrounded") {
+    return [t("error.hintStayOpen"), t("error.hintRetry")];
+  }
+  if (isLocalProblem.value) {
+    return [t("error.hintNetwork"), t("error.hintCoverage"), t("error.hintRetry")];
+  }
+  return [t("error.hintNetwork"), t("error.hintVpn"), t("error.hintRetry")];
+});
 </script>
 
 <template>

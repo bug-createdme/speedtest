@@ -50,7 +50,6 @@ export default {
   "metric.upload": "ອັບໂຫລດ",
   "metric.ping": "ຄວາມຫນ່ວງ",
   "metric.jitter": "ການແກວ່ງ",
-  "metric.loss": "ການສູນເສຍແພັກເກັດ",
   "metric.pingIdle": "ຕອນຫວ່າງ",
   "metric.pingLoaded": "ຕອນມີການໃຊ້ງານ",
 
@@ -111,5 +110,16 @@ export default {
   "sync.pending": "{count} ຜົນກຳລັງລໍຖ້າສົ່ງຂຶ້ນ",
   "sync.allSent": "ສົ່ງຜົນທັງໝົດຂຶ້ນແລ້ວ",
   "sync.notSent": "ຍັງບໍ່ໄດ້ສົ່ງ",
-  "sync.kept": "ເກັບໄວ້ {count} ຜົນ - ຍັງບໍ່ໄດ້ສົ່ງ"
+  "sync.kept": "ເກັບໄວ້ {count} ຜົນ - ຍັງບໍ່ໄດ້ສົ່ງ",
+
+  // Interrupted / invalid runs (context/network.js)
+  "error.offlineTitle": "ບໍ່ມີການເຊື່ອມຕໍ່ອິນເຕີເນັດ",
+  "error.offlineBody": "ອຸປະກອນຍັງບໍ່ໄດ້ເຊື່ອມຕໍ່ເຄືອຂ່າຍ. ກະລຸນາເຊື່ອມຕໍ່ແລ້ວລອງໃໝ່ — ເຊີບເວີທົດສອບບໍ່ມີບັນຫາ.",
+  "error.offlineDuringBody": "ການເຊື່ອມຕໍ່ຫຼຸດລະຫວ່າງການວັດ ຈຶ່ງໄດ້ຍົກເລີກຜົນ. ກະລຸນາຍ້າຍໄປບ່ອນທີ່ມີສັນຍານແລ້ວລອງໃໝ່.",
+  "error.backgroundedTitle": "ການວັດຖືກລົບກວນ",
+  "error.backgroundedBody": "ແອັບຖືກຍ້າຍໄປພື້ນຫຼັງລະຫວ່າງການວັດ. ສິ່ງນັ້ນເຮັດໃຫ້ການວັດຊ້າລົງໂດຍບໍ່ແຈ້ງເຕືອນ ຈຶ່ງຍົກເລີກຜົນແທນທີ່ຈະລາຍງານວ່າສາຍຊ້າ.",
+  "error.hintCoverage": "ຍ້າຍໄປບ່ອນທີ່ມີສັນຍານດີກວ່າ",
+  "error.hintStayOpen": "ເປີດໜ້ານີ້ໄວ້ຈົນກວ່າການທົດສອບຈະສຳເລັດ",
+  "result.invalid.network-changed": "ເຄືອຂ່າຍປ່ຽນລະຫວ່າງການວັດ ຜົນນີ້ອາດເປັນຂອງການເຊື່ອມຕໍ່ອື່ນ.",
+  "result.invalid.went-offline": "ການເຊື່ອມຕໍ່ຫຼຸດລະຫວ່າງການວັດ ຜົນນີ້ອາດບໍ່ຄົບຖ້ວນ."
 };

@@ -43,7 +43,6 @@ export default {
   "metric.upload": "Upload",
   "metric.ping": "Ping",
   "metric.jitter": "Jitter",
-  "metric.loss": "Packet loss",
   "metric.pingIdle": "idle",
   "metric.pingLoaded": "under load",
 
@@ -104,5 +103,16 @@ export default {
   "sync.pending": "{count} waiting to upload",
   "sync.allSent": "All results uploaded",
   "sync.notSent": "Not uploaded",
-  "sync.kept": "{count} kept - not uploaded yet"
+  "sync.kept": "{count} kept - not uploaded yet",
+
+  // Interrupted / invalid runs (context/network.js)
+  "error.offlineTitle": "No internet connection",
+  "error.offlineBody": "Your device is not connected to a network. Connect and try again - nothing is wrong with the test server.",
+  "error.offlineDuringBody": "The connection dropped while measuring, so the result was discarded. Move somewhere with signal and try again.",
+  "error.backgroundedTitle": "Measurement interrupted",
+  "error.backgroundedBody": "The app was sent to the background while measuring. That slows the test down without warning, so the result was discarded rather than reported as a slow connection.",
+  "error.hintCoverage": "Move to somewhere with better signal",
+  "error.hintStayOpen": "Keep this screen open until the test finishes",
+  "result.invalid.network-changed": "The network changed while measuring, so this result may belong to a different connection than the one shown.",
+  "result.invalid.went-offline": "The connection dropped while measuring, so this result may be incomplete."
 };

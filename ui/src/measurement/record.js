@@ -54,6 +54,27 @@ function numOrNull(value) {
   return Number.isFinite(n) && n !== 0 ? n : null;
 }
 
+/*
+  For the fields where zero is a reading rather than an absence.
+
+  numOrNull() above maps 0 to null, which is right for almost everything here:
+  a 0 Mbps download did not happen, a 0ms latency is impossible, a 0 for
+  MOBILE_RSRP would be an impossibly strong signal. All of those mean "no
+  value".
+
+  Loss is the exception, and it inverts the rule. "0.00% of 92 probes failed"
+  is one of the more useful things a run can report, and turning it into an
+  empty cell would throw away the good news while keeping the bad - every
+  clean measurement would look unmeasured, and the only rows carrying a loss
+  figure would be the ones with a problem. The count decides: if probes were
+  sent, whatever they found is a result.
+*/
+function measuredOrNull(value, wasMeasured) {
+  if (!wasMeasured) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 /* Mbit/s as the engine reports it -> kbit/s as the report format wants it. */
 function mbpsToKbps(value) {
   const n = Number(value);
@@ -175,6 +196,9 @@ export function netType(connectionType, source) {
  * @param {string}  input.connectionSource "bridge" (trustworthy) or "effectiveType" (a guess)
  * @param {string}  input.isdn        subscriber number, when the super-app gave one
  * @param {string}  input.appVersion  build identifier
+ * @param {object}  input.netStart    network snapshot taken before the run
+ * @param {object}  input.netEnd      network snapshot taken after it
+ * @param {object}  input.invalid     verdict from compareNetwork(), or null
  * @param {number}  input.startedAt   epoch ms when the run started
  * @param {number}  input.finishedAt  epoch ms when it ended
  * @returns {object} one record, nPerf field names, nulls for what was not measured
@@ -220,6 +244,20 @@ export function buildRecord(input) {
     NET_NAME: strOrNull(input.connection),
     /* Kept so a null NET_TYPE can be told apart from "we never asked". */
     NET_SOURCE: strOrNull(input.connectionSource),
+    /*
+      The network at both ends of the run, and the verdict on whether it held.
+
+      Their export carries START/END pairs for every radio field for the same
+      reason: reading conditions once does not tell you what a thirty-second
+      measurement measured. A run that fell from LTE to 3G halfway produces
+      real numbers under the wrong label, so it is kept and marked rather than
+      dropped - a row operations can exclude and still count beats one that
+      silently never existed. See context/network.js.
+    */
+    NET_NAME_START: input.netStart ? strOrNull(input.netStart.type) : null,
+    NET_NAME_END: input.netEnd ? strOrNull(input.netEnd.type) : null,
+    MEASUREMENT_VALID: input.invalid ? false : true,
+    MEASUREMENT_INVALID_REASON: input.invalid ? input.invalid.reason : null,
 
     /*
       ── location: not collected yet ───────────────────────────────────
@@ -285,15 +323,33 @@ export function buildRecord(input) {
     SPEED_LATENCY_SAMPLES: numOrNull(t.pingSamples),
 
     /*
-      ── probe loss ────────────────────────────────────────────────────
-      NOT packet loss, whatever the column is called in their export. This is
-      the share of latency probes that failed or exceeded their timeout, an
-      HTTP-level figure: TCP retransmits underneath, so a link genuinely
-      dropping packets usually still completes every probe and reads 0.00 here.
-      The sample count travels with it so nobody reads a zero drawn from forty
-      probes as a guarantee. See the note in speedtest_worker.js.
+      ── probe loss, and why their packet-loss column stays empty ──────
+
+      SPEED_DOWNLOAD_PACKETLOSS is deliberately null. We do not measure packet
+      loss and must not appear to.
+
+      What we do measure is PROBE_LOSS_PCT: the share of latency probes that
+      failed or exceeded their timeout. That is an HTTP-level figure. TCP
+      retransmits underneath it, so a link genuinely dropping several percent
+      of packets usually still completes every probe and reads 0.00 here. A
+      high value is strong evidence of a problem; a zero is not evidence of a
+      clean link.
+
+      Writing that number into their packet-loss column would be the worst
+      version of this: their pipeline would read it as an IP loss counter,
+      average it per province, and report 0% at exactly the cells that are
+      failing - a wrong number is harder to catch than a missing one, because
+      nothing about it looks unanswered.
+
+      So the column stays empty until something actually measures loss below
+      HTTP - an ICMP/UDP probe from inside the network, or a native API. That
+      gap is then visible in the export instead of being papered over.
+
+      PROBE_SAMPLES travels alongside so nobody reads a 0.00 drawn from forty
+      probes as a guarantee.
     */
-    SPEED_DOWNLOAD_PACKETLOSS: numOrNull(t.packetLoss),
+    SPEED_DOWNLOAD_PACKETLOSS: null,
+    PROBE_LOSS_PCT: measuredOrNull(t.probeLoss, Number(t.probeCount) > 0),
     PROBE_SAMPLES: numOrNull(t.probeCount),
 
     /* ── connection setup ───────────────────────────────────────────── */
@@ -327,6 +383,10 @@ export const RECORD_FIELDS = [
   "NET_CELL_GEN",
   "NET_NAME",
   "NET_SOURCE",
+  "NET_NAME_START",
+  "NET_NAME_END",
+  "MEASUREMENT_VALID",
+  "MEASUREMENT_INVALID_REASON",
   "LOCATION_LAT",
   "LOCATION_LNG",
   "LOCATION_ACCURACY",
@@ -369,6 +429,7 @@ export const RECORD_FIELDS = [
   "SPEED_LATENCY_JITTER",
   "SPEED_LATENCY_SAMPLES",
   "SPEED_DOWNLOAD_PACKETLOSS",
+  "PROBE_LOSS_PCT",
   "PROBE_SAMPLES",
   "SETUP_DNS",
   "SETUP_TCP",
