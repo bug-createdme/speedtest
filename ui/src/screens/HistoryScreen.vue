@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
-import { clearHistory, history, syncState, toCsv } from "../state/history.js";
+import { clearHistory, history, syncState, toCsv, toXlsx } from "../state/history.js";
+import { XLSX_MIME } from "../report/xlsx.js";
 import { goBack } from "../state/ui.js";
 import { useI18n } from "../i18n/index.js";
 
@@ -52,18 +53,39 @@ const grouped = computed(() => {
   });
 });
 
-function download() {
-  const blob = new Blob([toCsv()], { type: "text/csv;charset=utf-8" });
+/*
+  Hand a file to the user.
+
+  Known limitation, and not one this function can fix: a WebView often refuses
+  an <a download> outright. The super-app bridge can share content, which is the
+  route out of that, and it is the share half of CHANGE-011 rather than
+  something to fake here - a silent no-op would be worse than a button that
+  visibly does nothing on the platforms that block it.
+*/
+function save(blob, filename) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "speedtest-history.csv";
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   // Revoking immediately can cancel the download on some WebViews; one frame
   // is enough for the navigation to have been picked up.
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadCsv() {
+  save(new Blob([toCsv()], { type: "text/csv;charset=utf-8" }), "speedtest-history.csv");
+}
+
+/*
+  The spreadsheet the partner actually opens. Same records and same columns as
+  the CSV; what differs is that every cell carries its type, so Excel cannot
+  rewrite a subscriber number or a timestamp on the way in.
+*/
+function downloadXlsx() {
+  save(new Blob([toXlsx()], { type: XLSX_MIME }), "speedtest-history.xlsx");
 }
 
 /*
@@ -154,7 +176,15 @@ function fmtSpeed(value) {
         v-if="grouped.length"
         type="button"
         class="btn btn-ghost btn-block"
-        @click="download"
+        @click="downloadXlsx"
+      >
+        {{ t("action.exportExcel") }}
+      </button>
+      <button
+        v-if="grouped.length"
+        type="button"
+        class="btn btn-ghost btn-block"
+        @click="downloadCsv"
       >
         {{ t("action.exportCsv") }}
       </button>

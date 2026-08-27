@@ -1,6 +1,7 @@
 import { ref } from "vue";
 
 import { buildRecord, recordsToCsv } from "../measurement/record.js";
+import { recordsToXlsx } from "../report/xlsx.js";
 import {
   STATUS,
   allEntries,
@@ -103,4 +104,19 @@ export async function clearHistory(includeUnsent) {
  */
 export function toCsv() {
   return recordsToCsv(history.value.map((row) => row.record));
+}
+
+/**
+ * The same records, the same columns, as a real spreadsheet.
+ *
+ * Not a nicer CSV: Excel re-interprets a CSV on open, and the subscriber number
+ * loses its leading zero, long identifiers turn into scientific notation, and in
+ * a locale whose list separator is ";" the whole file lands in one column. An
+ * .xlsx carries a type per cell, so what was written is what is read back. See
+ * report/xlsx.js.
+ *
+ * @returns {Uint8Array}
+ */
+export function toXlsx() {
+  return recordsToXlsx(history.value.map((row) => row.record));
 }

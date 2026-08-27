@@ -39,6 +39,7 @@ export default {
   "action.chooseServer": "ເລືອກເຊີບເວີອື່ນ",
   "action.showDetails": "ລາຍລະອຽດຂໍ້ຜິດພາດ",
   "action.hideDetails": "ເຊື່ອງລາຍລະອຽດ",
+  "action.exportExcel": "ສົ່ງອອກ Excel",
   "action.exportCsv": "ສົ່ງອອກ CSV",
   "action.clearHistory": "ລຶບປະຫວັດ",
   "action.change": "ປ່ຽນ",

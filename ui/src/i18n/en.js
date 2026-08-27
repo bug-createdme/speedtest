@@ -20,6 +20,7 @@ export default {
   "action.chooseServer": "Choose another server",
   "action.showDetails": "Error details",
   "action.hideDetails": "Hide details",
+  "action.exportExcel": "Export Excel",
   "action.exportCsv": "Export CSV",
   "action.clearHistory": "Clear history",
   "action.change": "Change",

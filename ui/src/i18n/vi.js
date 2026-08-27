@@ -14,6 +14,7 @@ export default {
   "action.chooseServer": "Chọn máy chủ khác",
   "action.showDetails": "Chi tiết lỗi",
   "action.hideDetails": "Ẩn chi tiết",
+  "action.exportExcel": "Xuất Excel",
   "action.exportCsv": "Xuất CSV",
   "action.clearHistory": "Xoá lịch sử",
   "action.change": "Đổi",
