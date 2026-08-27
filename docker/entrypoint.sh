@@ -4,6 +4,7 @@ echo "Setting up docker env..."
 echo "MODE: $MODE"
 echo "USE_NEW_DESIGN: $USE_NEW_DESIGN"
 echo "SERVER_LIST_URL: $SERVER_LIST_URL"
+echo "ALLOWED_ORIGINS: $ALLOWED_ORIGINS"
 echo "WEBPORT: $WEBPORT"
 echo "REDACT_IP_ADDRESSES: $REDACT_IP_ADDRESSES"
 echo "DB_TYPE: $DB_TYPE"
@@ -155,6 +156,22 @@ fi
 
 # Apply Telemetry settings when running in standalone or frontend mode and telemetry is enabled
 if [[ "$TELEMETRY" == "true" && ("$MODE" == "frontend" || "$MODE" == "standalone" || "$MODE" == "dual") ]]; then
+  # Refuse to start with a guessable statistics password.
+  #
+  # stats.php has its own guard, but it only recognises the literal string
+  # 'PASSWORD'. The image used to default to 'password', which sails past that
+  # check while being no secret at all - and the page it protects lists every
+  # recorded result together with the client IP and ISP of whoever produced it.
+  # Failing here is louder than any warning and cannot be scrolled past.
+  case "$PASSWORD" in
+    ""|password|PASSWORD|Password|changeme|admin|123456|speedtest)
+      echo "ERROR: TELEMETRY=true needs a real statistics password." >&2
+      echo "       PASSWORD is currently '${PASSWORD}', which is empty or well known." >&2
+      echo "       Start the container with -e PASSWORD=<something only you know>." >&2
+      exit 1
+      ;;
+  esac
+
   cp -r /speedtest/results /var/www/html/results
   sed -i 's/telemetry_level": ".*"/telemetry_level": "basic"/' /var/www/html/settings.json
 

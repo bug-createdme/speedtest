@@ -40,8 +40,22 @@ COPY docker/entrypoint.sh /
 ENV TITLE=LibreSpeed
 ENV TAGLINE="No Flash, No Java, No Websockets, No Bullsh*t"
 ENV MODE=standalone
-ENV PASSWORD=password
+# No working default for the statistics password, on purpose.
+#
+# results/stats.php refuses to serve when the password is still the literal
+# 'PASSWORD' placeholder - but that guard never fired for this image, because
+# the image shipped PASSWORD=password, a different string and therefore
+# "configured". Every deployment that turned telemetry on published its whole
+# results database - client IPs and ISP names included - behind a password
+# printed in a public Dockerfile. entrypoint.sh now refuses to start with
+# telemetry enabled unless a real one is supplied.
+ENV PASSWORD=
 ENV TELEMETRY=false
+# Origins allowed to run a cross-origin measurement against this server.
+# "*" keeps the historical behaviour: any web page anywhere may drive this
+# test point. Set it to the super-app's origin(s), comma separated, before
+# exposing the server publicly - see backend/cors_util.php.
+ENV ALLOWED_ORIGINS=*
 ENV ENABLE_ID_OBFUSCATION=false
 ENV REDACT_IP_ADDRESSES=false
 ENV WEBPORT=8080
