@@ -1,0 +1,11 @@
+[
+  {
+    "name": "REPLACE-ME - Vientiane test point",
+    "server": "https://REPLACE-ME.invalid/",
+    "id": 1,
+    "dlURL": "garbage.php",
+    "ulURL": "empty.php",
+    "pingURL": "empty.php",
+    "getIpURL": "getIP.php"
+  }
+]

@@ -11,3 +11,5 @@ results/speedtest_telemetry.db-wal
 dist/
 mini-build/
 *.zip
+test-assets/
+backend/assets/
