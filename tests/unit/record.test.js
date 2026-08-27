@@ -322,6 +322,63 @@ describe("web and video fields", () => {
   });
 });
 
+describe("location fields", () => {
+  /*
+    CHANGE-007 (location part): the coordinates from context/location.js land in
+    the record here. Coordinates are not a measured magnitude, so they do NOT
+    follow the absent-is-not-zero rule the speeds do - a latitude of 0 is the
+    equator, a real place - while accuracy does, because the bridge reports none
+    and a stored 0 would read as a perfect fix.
+  */
+  it("maps a bridge fix, with accuracy null rather than zero", () => {
+    const r = buildRecord({
+      test: fullRun(),
+      location: { lat: 17.9757, lng: 102.6331, accuracy: null }
+    });
+    expect(r.LOCATION_LAT).toBe(17.9757);
+    expect(r.LOCATION_LNG).toBe(102.6331);
+    // The bridge gives no accuracy: it stays null, not 0.
+    expect(r.LOCATION_ACCURACY).toBeNull();
+  });
+
+  it("keeps the accuracy a web fix carries", () => {
+    const r = buildRecord({
+      test: fullRun(),
+      location: { lat: 17.9757, lng: 102.6331, accuracy: 12 }
+    });
+    expect(r.LOCATION_ACCURACY).toBe(12);
+  });
+
+  it("stores a run with no fix as null coordinates", () => {
+    const r = buildRecord({ test: fullRun() });
+    expect(r.LOCATION_LAT).toBeNull();
+    expect(r.LOCATION_LNG).toBeNull();
+    expect(r.LOCATION_ACCURACY).toBeNull();
+  });
+
+  /* Coordinates are not magnitudes: a genuine 0 must survive, unlike a 0 Mbps. */
+  it("keeps a real zero coordinate", () => {
+    const r = buildRecord({
+      test: fullRun(),
+      location: { lat: 0, lng: 102.6331, accuracy: null }
+    });
+    expect(r.LOCATION_LAT).toBe(0);
+  });
+
+  /* A coordinate is not yet a place: reverse geocoding is not built, so the
+     administrative fields stay null even when there is a fix. */
+  it("leaves country, province, district and address null", () => {
+    const r = buildRecord({
+      test: fullRun(),
+      location: { lat: 17.9757, lng: 102.6331, accuracy: 12 }
+    });
+    expect(r.LOCATION_COUNTRY).toBeNull();
+    expect(r.LOCATION_AAL1).toBeNull();
+    expect(r.LOCATION_AAL2).toBeNull();
+    expect(r.LOCATION_FULL_ADDRESS).toBeNull();
+  });
+});
+
 describe("device identification", () => {
   it("reads an Android handset", () => {
     const device = parseUserAgent(ANDROID_UA);

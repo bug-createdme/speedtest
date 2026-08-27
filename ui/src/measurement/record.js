@@ -75,6 +75,21 @@ function measuredOrNull(value, wasMeasured) {
   return Number.isFinite(n) ? n : null;
 }
 
+/*
+  For coordinates, where 0 is a real value rather than an absence.
+
+  numOrNull() maps 0 to null, which is wrong here: latitude 0 is the equator, a
+  place, not "unmeasured". So only null/undefined and non-finite input become
+  null; a genuine 0 survives. It also keeps accuracy: null distinct from
+  accuracy: 0, because the bridge reports no accuracy at all and a stored 0
+  would read as a perfect fix.
+*/
+function finiteOrNull(value) {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 /* Mbit/s as the engine reports it -> kbit/s as the report format wants it. */
 function mbpsToKbps(value) {
   const n = Number(value);
@@ -199,6 +214,7 @@ export function netType(connectionType, source) {
  * @param {object}  input.netStart    network snapshot taken before the run
  * @param {object}  input.netEnd      network snapshot taken after it
  * @param {object}  input.invalid     verdict from compareNetwork(), or null
+ * @param {object}  input.location    {lat, lng, accuracy} from context/location.js, or null
  * @param {number}  input.startedAt   epoch ms when the run started
  * @param {number}  input.finishedAt  epoch ms when it ended
  * @returns {object} one record, nPerf field names, nulls for what was not measured
@@ -260,13 +276,19 @@ export function buildRecord(input) {
     MEASUREMENT_INVALID_REASON: input.invalid ? input.invalid.reason : null,
 
     /*
-      ── location: not collected yet ───────────────────────────────────
-      Filled by ui/src/context/location.js. Declared now so storage, sync
-      payload and export keep the same shape when it arrives.
+      ── location ──────────────────────────────────────────────────────
+      Coordinates come from ui/src/context/location.js (the super-app bridge,
+      falling back to navigator.geolocation). Accuracy is a number only from the
+      web fallback; the bridge reports none, so it stays null rather than 0.
+
+      Country/province/district and the full address are still null: turning a
+      coordinate into an administrative area is reverse geocoding that is not
+      built yet (CHANGE-012 needs the province). Declared here so storage, sync
+      payload and export keep the same shape when it lands.
     */
-    LOCATION_LAT: null,
-    LOCATION_LNG: null,
-    LOCATION_ACCURACY: null,
+    LOCATION_LAT: input.location ? finiteOrNull(input.location.lat) : null,
+    LOCATION_LNG: input.location ? finiteOrNull(input.location.lng) : null,
+    LOCATION_ACCURACY: input.location ? finiteOrNull(input.location.accuracy) : null,
     LOCATION_COUNTRY: null,
     LOCATION_AAL1: null, // province
     LOCATION_AAL2: null, // district

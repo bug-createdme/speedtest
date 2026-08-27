@@ -3,6 +3,7 @@ import { reactive } from "vue";
 import { locale } from "../i18n/index.js";
 import { connectionType } from "./ui.js";
 import { compareNetwork, networkSnapshot, watchNetwork } from "../context/network.js";
+import { fetchLocation } from "../context/location.js";
 import { runStreamingTest } from "../measurement/streaming.js";
 import { initBridge, isdn } from "../bridge/windvane.js";
 
@@ -196,6 +197,15 @@ export const test = reactive({
   netEnd: null,
   invalid: null,
 
+  /*
+    Where the run was taken, filled asynchronously once the fix comes back (see
+    startTest). Per-run rather than a live ref: a surveyor moves between
+    measurements, so carrying the previous spot's coordinates into a run whose
+    own locate failed would be exactly the plausible-but-wrong data this app
+    avoids. Null until this run's own fix arrives, and null if it never does.
+  */
+  location: null,
+
   error: null
 });
 
@@ -316,6 +326,7 @@ function resetRun() {
   test.netStart = null;
   test.netEnd = null;
   test.invalid = null;
+  test.location = null;
   test.error = null;
 }
 
@@ -697,6 +708,21 @@ export function startTest() {
   test.netStart = before;
   test.running = true;
   test.stage = STAGE.STARTING;
+
+  /*
+    Ask for the position now, at the start of the run, and let it arrive on its
+    own. Fire-and-forget for the same reason the bridge init is (see
+    windvane.js): blocking Start behind a locate - which can prompt for a
+    permission and take seconds - is the disabled-UI-waiting-on-a-network-call
+    defect this project set out to remove. The measurement takes ~30s, so the
+    fix is almost always back by the time the record is built; a run that
+    finishes before it is stored with a null position rather than delayed.
+  */
+  fetchLocation()
+    .then((loc) => {
+      test.location = loc;
+    })
+    .catch(() => {});
 
   /*
     If selection has not finished yet, fall back to the first server in the

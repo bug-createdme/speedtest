@@ -97,6 +97,7 @@ watch(
       netStart: test.netStart,
       netEnd: test.netEnd,
       invalid: test.invalid,
+      location: test.location,
       isdn: isdn.value,
       appVersion: APP_VERSION,
       startedAt: runStartedAt,
