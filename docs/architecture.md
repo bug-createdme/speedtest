@@ -111,6 +111,8 @@ enable_http2=false
 
 ### Cấu hình đề xuất cho test server
 
+> Các bước dựng cụ thể, kèm bộ lệnh nghiệm thu: **[docs/deploy-backend.md](deploy-backend.md)**.
+
 > **Đính chính 2026-08-28.** Bản trước của mục này khuyến nghị **1 instance đặt trong hạ tầng nội bộ Unitel**, `database_type="memory"` hoặc `"none"`, và ghi telemetry tắt mặc định. Cả ba đều không còn đúng:
 >
 > - **Vị trí** đổi vì quyết định "3 nhà mạng đo trên 3 máy khác nhau" (REQ-001, chốt 27/08). Máy đo nằm trên **mạng di động**, không nằm trong LAN Unitel — một server IP nội bộ hoặc sau VPN thì từ điện thoại **không tồn tại**.

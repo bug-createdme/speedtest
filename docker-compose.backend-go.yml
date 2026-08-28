@@ -53,42 +53,52 @@ services:
       # asks, with no login at all. Set it to something real.
       SPEEDTEST_STATISTICS_PASSWORD: ${SPEEDTEST_STATISTICS_PASSWORD:?set a statistics password, e.g. SPEEDTEST_STATISTICS_PASSWORD=... docker compose up}
 
+  # ── local verification, plain http ────────────────────────────────────────
   nginx:
+    profiles: ["dev"]
     image: nginx:1.27-alpine
     depends_on:
       - backend-go
     # 8989 on the host so existing server-list.json entries keep working; nginx
-    # listens on 8080 inside. On a public host this becomes 443 with a
-    # certificate - see the TLS note at the bottom of nginx-backend-go.conf.
+    # listens on 8080 inside.
     ports:
       - "8989:8080"
     environment:
-      # Origin allowlist, enforced here because backend-go cannot do it.
-      # The default "." matches any origin, which is exactly what backend-go
-      # does today - so this changes nothing until it is set. Before this faces
-      # the internet, set it to the super-app's origin:
-      #
-      #   SPEEDTEST_ALLOWED_ORIGIN_REGEX='^https://app[.]unitel[.]com[.]la$'
-      #
-      # Write the dots as [.] rather than \. on purpose. Git Bash on Windows
-      # rewrites backslashes in an argument as forward slashes on the way into
-      # docker, so \. arrives as /. and the regex then matches NOTHING - every
-      # origin is refused, including the right one. It fails closed rather than
-      # open, but it costs a long afternoon. [.] is a literal dot in POSIX
-      # regex and survives the mangling.
-      #
-      # Verified: the anchored form above accepts https://app.unitel.com.la and
-      # refuses https://app.unitel.com.la.evil.example.
       SPEEDTEST_ALLOWED_ORIGIN_REGEX: ${SPEEDTEST_ALLOWED_ORIGIN_REGEX:-.}
     volumes:
-      # A template, not a plain config: the nginx image runs envsubst over
-      # /etc/nginx/templates/*.template at start-up, which is what fills in
-      # SPEEDTEST_ALLOWED_ORIGIN_REGEX above.
       - ./docker/nginx-backend-go.conf:/etc/nginx/templates/10-speedtest.conf.template:ro
-      # 00- so the stock `include /etc/nginx/conf.d/*.conf` defines the limit
-      # zones before the server block that uses them.
+      - ./docker/nginx-speedtest-endpoints.conf:/etc/nginx/speedtest-endpoints.conf:ro
       - ./docker/speedtest_limits.conf:/etc/nginx/conf.d/00-speedtest_limits.conf:ro
       - ./docker/speedtest_proxy.conf:/etc/nginx/speedtest_proxy.conf:ro
+
+  # ── public host, https ────────────────────────────────────────────────────
+  nginx-tls:
+    profiles: ["tls"]
+    image: nginx:1.27-alpine
+    depends_on:
+      - backend-go
+    ports:
+      - "80:8080"     # ACME challenge + redirect to https
+      - "443:8443"
+    environment:
+      # The certificate's domain. Also what nginx matches server_name on.
+      # Required for the tls profile. Not marked `:?` because compose
+      # interpolates every service's variables even when another profile is
+      # selected, which would make the dev profile demand a domain it has no use
+      # for. Left wrong, nginx fails to start on the certificate - loudly.
+      SPEEDTEST_SERVER_NAME: ${SPEEDTEST_SERVER_NAME:-speedtest.example.la}
+      # Write the dots as [.] - see the note on the dev service above.
+      SPEEDTEST_ALLOWED_ORIGIN_REGEX: ${SPEEDTEST_ALLOWED_ORIGIN_REGEX:-.}
+    volumes:
+      - ./docker/nginx-backend-go-tls.conf:/etc/nginx/templates/10-speedtest.conf.template:ro
+      - ./docker/nginx-speedtest-endpoints.conf:/etc/nginx/speedtest-endpoints.conf:ro
+      - ./docker/speedtest_limits.conf:/etc/nginx/conf.d/00-speedtest_limits.conf:ro
+      - ./docker/speedtest_proxy.conf:/etc/nginx/speedtest_proxy.conf:ro
+      # The LIVE certbot directory, not a copy: certbot renews in place, and a
+      # copy would keep serving the expired certificate until someone noticed.
+      - ${SPEEDTEST_CERT_DIR:-./docker/certs}:/etc/nginx/certs:ro
+      # Webroot for certbot renewals.
+      - ${SPEEDTEST_CERTBOT_WEBROOT:-./docker/certbot-webroot}:/var/www/certbot
 
 volumes:
   speedtest-results:
