@@ -21,6 +21,16 @@ enable_tls = false
 
 # Where the test server claims to be, used for the distance shown to the client.
 # Placeholder until a real Unitel site is chosen - Vientiane city centre.
+# Where the Web and Video samples are served from.
+#
+# Left empty, backend-go falls back to its own EMBEDDED assets (the librespeed
+# example pages) and there is nowhere to put browse-sample.html or
+# video-sample.mp4 - both stages would 404 and report Error. The directory is
+# mounted by docker-compose.backend-go.yml; build its contents first with
+#   node scripts/make-test-assets.js
+# See docs/test-assets.md.
+assets_path = "/assets"
+
 server_lat = 17.9757
 server_lng = 102.6331
 distance_unit = "K"
@@ -44,7 +54,12 @@ database_file = "/data/speedtest.db"
 # use - see docs/architecture.md §7.
 redact_ip_addresses = false
 
-# GeoIP fallback for ISP/country when ipinfo.io is not configured. The file ships
-# in this repo at backend/country_asn.mmdb; mount it if you want ISP names.
-# geoip_database_file = "/app/country_asn.mmdb"
+# GeoIP for ISP/country. Enabled, and the file is mounted by
+# docker-compose.backend-go.yml.
+#
+# Not optional for this project: getIP returns the AS name from here, and
+# ui/src/context/operator.js turns that into the carrier the whole report is
+# grouped by. Without it every record carries a null MOBILE_OPERATOR and the
+# Unitel/LaoTel/ETL breakdown cannot be produced at all.
+geoip_database_file = "/app/country_asn.mmdb"
 ipinfo_api_key = ""

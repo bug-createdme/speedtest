@@ -1,6 +1,19 @@
-# librespeed/speedtest-go, vendored as a git submodule at backend-go/.
-# Verified compatible with our patched speedtest.js/speedtest_worker.js (real
-# cross-origin engine run, HTTP/1.1 confirmed) — see docs/architecture.md §3.
+# librespeed/speedtest-go, vendored as a git submodule at backend-go/, behind
+# nginx. Verified compatible with our patched speedtest.js/speedtest_worker.js
+# (real cross-origin engine run, HTTP/1.1 confirmed) - see docs/architecture.md §3.
+#
+# ── WHY NGINX IS HERE ───────────────────────────────────────────────────────
+#
+# This file used to publish backend-go's port 8989 directly. On a public host
+# that is an unauthenticated bandwidth amplifier: backend-go has no rate
+# limiting of any kind, garbage.php streams up to 1 GiB per request, and curl
+# does not care about CORS. Two more gaps come with it - backend-go hard-codes
+# its CORS origins to "*" and reads no configuration for them, and its
+# statistics page lists the client IP and ISP of every recorded result with no
+# address restriction.
+#
+# nginx supplies all three (docker/nginx-backend-go.conf) and 8989 is no longer
+# published. See docs/architecture.md §7.
 #
 # Usage:
 #   git submodule update --init backend-go   # first checkout only
@@ -8,18 +21,28 @@
 #     docker compose -f docker-compose.backend-go.yml up -d --build
 #   docker compose -f docker-compose.backend-go.yml down
 #
-# Results land in a bolt database on the speedtest-results volume and are
-# readable at http://localhost:8989/stats.php (login required, see below) or as
-# JSON at http://localhost:8989/results/json.php?id=<test id>.
+# Results land in a bolt database on the speedtest-results volume. The stats
+# page and json.php are restricted to the operations network by nginx, so they
+# are not reachable from a browser on another machine until that allowlist is
+# set to a real range.
 services:
   backend-go:
     build:
       context: ./backend-go
-    ports:
-      - "8989:8989"
+    # Deliberately NOT published. nginx is the only way in.
+    expose:
+      - "8989"
     volumes:
       # Config kept in this repo instead of patched into the submodule.
       - ./docker/backend-go.settings.toml:/app/settings.toml:ro
+      # Without this the ISP name is empty, and MOBILE_OPERATOR - the carrier
+      # the whole report is grouped by - comes out null on every record.
+      # See ui/src/context/operator.js.
+      - ./backend/country_asn.mmdb:/app/country_asn.mmdb:ro
+      # The Web and Video stage samples. Generate them first with
+      # `node scripts/make-test-assets.js`; an empty directory here just means
+      # both stages 404 and report Error. See docs/test-assets.md.
+      - ./test-assets:/assets:ro
       - speedtest-results:/data
     environment:
       # Read by viper via SetEnvPrefix("speedtest") + AutomaticEnv.
@@ -29,6 +52,43 @@ services:
       # page - every recorded result, with client IPs and ISPs - to anyone who
       # asks, with no login at all. Set it to something real.
       SPEEDTEST_STATISTICS_PASSWORD: ${SPEEDTEST_STATISTICS_PASSWORD:?set a statistics password, e.g. SPEEDTEST_STATISTICS_PASSWORD=... docker compose up}
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - backend-go
+    # 8989 on the host so existing server-list.json entries keep working; nginx
+    # listens on 8080 inside. On a public host this becomes 443 with a
+    # certificate - see the TLS note at the bottom of nginx-backend-go.conf.
+    ports:
+      - "8989:8080"
+    environment:
+      # Origin allowlist, enforced here because backend-go cannot do it.
+      # The default "." matches any origin, which is exactly what backend-go
+      # does today - so this changes nothing until it is set. Before this faces
+      # the internet, set it to the super-app's origin:
+      #
+      #   SPEEDTEST_ALLOWED_ORIGIN_REGEX='^https://app[.]unitel[.]com[.]la$'
+      #
+      # Write the dots as [.] rather than \. on purpose. Git Bash on Windows
+      # rewrites backslashes in an argument as forward slashes on the way into
+      # docker, so \. arrives as /. and the regex then matches NOTHING - every
+      # origin is refused, including the right one. It fails closed rather than
+      # open, but it costs a long afternoon. [.] is a literal dot in POSIX
+      # regex and survives the mangling.
+      #
+      # Verified: the anchored form above accepts https://app.unitel.com.la and
+      # refuses https://app.unitel.com.la.evil.example.
+      SPEEDTEST_ALLOWED_ORIGIN_REGEX: ${SPEEDTEST_ALLOWED_ORIGIN_REGEX:-.}
+    volumes:
+      # A template, not a plain config: the nginx image runs envsubst over
+      # /etc/nginx/templates/*.template at start-up, which is what fills in
+      # SPEEDTEST_ALLOWED_ORIGIN_REGEX above.
+      - ./docker/nginx-backend-go.conf:/etc/nginx/templates/10-speedtest.conf.template:ro
+      # 00- so the stock `include /etc/nginx/conf.d/*.conf` defines the limit
+      # zones before the server block that uses them.
+      - ./docker/speedtest_limits.conf:/etc/nginx/conf.d/00-speedtest_limits.conf:ro
+      - ./docker/speedtest_proxy.conf:/etc/nginx/speedtest_proxy.conf:ro
 
 volumes:
   speedtest-results:

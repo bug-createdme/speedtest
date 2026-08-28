@@ -246,7 +246,23 @@ Tóm tắt: bridge là **WindVane** (không phải MiniappSDK/LaoApp — ngoài 
 2. **Allowlist origin không áp dụng được.** `backend-go/web/web.go` hard-code `AllowedOrigins: []string{"*"}`; `ALLOWED_ORIGINS` là biến của bản PHP, Go không đọc.
 3. **`stats.php` của Go không bị giới hạn IP** — có mật khẩu (compose bắt buộc `SPEEDTEST_STATISTICS_PASSWORD`), nhưng trang liệt kê IP/ISP của từng phép đo vẫn phơi ra Internet.
 
-**Cách xử lý:** đặt nginx phía trước backend Go và mang theo cấu hình `docker/nginx-speedtest.conf` — nó cung cấp cả ba thứ trên. Đừng publish cổng 8989 ra ngoài.
+**Đã xử lý (28/08).** `docker-compose.backend-go.yml` nay dựng nginx phía trước; cổng 8989 **không còn được publish**, backend-go chỉ `expose` trong mạng nội bộ của compose. Cấu hình ở `docker/nginx-backend-go.conf`, dùng chung phần giới hạn với bản host qua `docker/speedtest_limits.conf`.
+
+Đã kiểm chứng bằng stack chạy thật, không phải suy luận:
+
+| Kiểm tra | Kết quả |
+|---|---|
+| 3 endpoint đo qua proxy | 200; `garbage.php?ckSize=1` trả đúng 1 MiB |
+| Header CORS | **đúng 1** `Access-Control-Allow-Origin` — Go gửi `*`, nginx gỡ đi rồi phát lại theo allowlist. Hai header thì trình duyệt chặn sạch |
+| Preflight `OPTIONS` | 204 kèm CORS, nginx tự trả chứ không đẩy lên Go |
+| Allowlist origin | Nhận origin đúng; chặn `evil.example` **và** `app.unitel.com.la.evil.example` |
+| `stats.php`, `results/json.php` | 403 |
+| `/`, trang ví dụ của Go | 404 |
+| Rate limit | 250 request dồn dập → 16 nhận **429** |
+| `X-Forwarded-For` | Go thấy IP client thật (172.20.0.1), không phải IP nginx (172.20.0.3) — sai chỗ này thì mọi bản ghi bị gán nhầm nhà mạng |
+| Mẫu Web | `browse-sample.html` chạy suốt stack, 1.048.576 byte, không nén |
+
+⚠ Khi đặt `SPEEDTEST_ALLOWED_ORIGIN_REGEX`, viết dấu chấm là `[.]` chứ đừng `\\.`: Git Bash trên Windows đổi `\` thành `/` trên đường vào docker, regex thành vô nghĩa và **chặn mọi origin, kể cả origin đúng**.
 
 ### Việc phải làm khi lên server công khai
 
