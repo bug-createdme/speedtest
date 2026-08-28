@@ -90,6 +90,45 @@ function bundleCompose() {
   );
 }
 
+function envExample() {
+  return [
+    "# Configuration for docker compose. Copy and fill in:",
+    "#",
+    "#   cp .env.example .env && chmod 600 .env",
+    "#",
+    "# Compose reads .env from this directory automatically, so nothing needs",
+    "# exporting on every login. It is shipped as .example so that re-extracting",
+    "# the bundle over a running deployment cannot overwrite your settings.",
+    "",
+    "# REQUIRED, and deliberately empty. The statistics page lists the client IP",
+    "# and ISP behind every recorded result, so there is no sane default here -",
+    "# compose refuses to start until this is set to something real.",
+    "SPEEDTEST_STATISTICS_PASSWORD=",
+    "",
+    "# Which page origins may read the measurement endpoints.",
+    "#",
+    "# \".\" matches any origin - the same as backend-go's own behaviour, and fine",
+    "# for a local check. Before this faces the internet, set it to the",
+    "# super-app's origin, like the commented line below.",
+    "#",
+    "# Write the dots as [.] and not \\. : some shells rewrite the backslash on",
+    "# the way into docker, and the regex then matches NOTHING - every origin",
+    "# refused, including the right one. It fails closed, but it costs an",
+    "# afternoon to find.",
+    "SPEEDTEST_ALLOWED_ORIGIN_REGEX=.",
+    "#SPEEDTEST_ALLOWED_ORIGIN_REGEX=^https://app[.]unitel[.]com[.]la$",
+    "",
+    "# --profile tls only. Ignored by --profile dev.",
+    "#",
+    "# SPEEDTEST_CERT_DIR must be certbot's LIVE directory, not a copy of it:",
+    "# certbot renews in place, and a copy would keep serving the expired",
+    "# certificate until somebody noticed.",
+    "SPEEDTEST_SERVER_NAME=speedtest.example.la",
+    "SPEEDTEST_CERT_DIR=/etc/letsencrypt/live/speedtest.example.la",
+    ""
+  ].join("\n");
+}
+
 function deployNotes(arch) {
   const B = "```";
   return [
@@ -138,15 +177,21 @@ function deployNotes(arch) {
     "## 3 - Configure",
     "",
     B + "sh",
-    "export SPEEDTEST_STATISTICS_PASSWORD='<a real password>'",
-    "export SPEEDTEST_SERVER_NAME='speedtest.example.la'",
-    "export SPEEDTEST_CERT_DIR='/etc/letsencrypt/live/speedtest.example.la'",
-    "export SPEEDTEST_ALLOWED_ORIGIN_REGEX='^https://app[.]unitel[.]com[.]la$'",
+    "cp .env.example .env && chmod 600 .env",
+    "# then edit .env",
     B,
     "",
-    "Write the dots as `[.]`, not `\\.`. Some shells rewrite the backslash on the",
-    "way into docker and the regex then matches nothing - every origin refused,",
-    "including the right one. It fails closed, but it costs an afternoon.",
+    "Compose reads `.env` from this directory automatically, so nothing has to be",
+    "exported on every login. Every variable is documented in the file.",
+    "",
+    "`SPEEDTEST_STATISTICS_PASSWORD` ships empty on purpose: the statistics page",
+    "lists the client IP and ISP behind every recorded result, so there is no sane",
+    "default, and compose refuses to start until it is set.",
+    "",
+    "Write the origin regex dots as `[.]`, not `\\.`. Some shells rewrite the",
+    "backslash on the way into docker and the regex then matches nothing - every",
+    "origin refused, including the right one. It fails closed, but it costs an",
+    "afternoon.",
     "",
     "Then edit `docker/nginx-speedtest-endpoints.conf` and replace",
     "`allow 10.0.0.0/8` with the operations network, or the statistics page stays",
@@ -214,6 +259,21 @@ function main() {
      record. */
   copy("backend/country_asn.mmdb");
   copy("docs/deploy-backend.md");
+
+  /*
+    Shipped as .example, not as .env.
+
+    Compose reads .env from this directory automatically, so a real .env in the
+    bundle would be overwritten by the next `tar -xf` over an existing
+    deployment - silently replacing a working configuration, password included.
+    And a .env carrying a placeholder password would pass the compose guard and
+    deploy a known credential, which is the failure CHANGE-006 removed from the
+    PHP image.
+
+    The password is left EMPTY on purpose: `${VAR:?...}` treats empty as unset,
+    so an unedited copy refuses to start and says what to set.
+  */
+  fs.writeFileSync(path.join(STAGE, ".env.example"), envExample());
 
   const assetsDir = path.join(ROOT, "test-assets");
   fs.mkdirSync(path.join(STAGE, "test-assets"), { recursive: true });
