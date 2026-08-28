@@ -219,16 +219,22 @@ function main() {
 
   fs.writeFileSync(path.join(STAGE, "DEPLOY.md"), deployNotes(arch));
 
-  log("compressing...");
-  const tgz = path.join(OUT_ROOT, "speedtest-deploy.tar.gz");
-  /* Relative paths, run from inside the output directory: GNU tar reads a
-     leading "C:" in a Windows path as a remote host and fails to resolve it. */
-  sh("tar -czf speedtest-deploy.tar.gz speedtest-deploy", { cwd: OUT_ROOT });
-  ok("bundle: " + path.relative(ROOT, tgz) + "  " + human(fs.statSync(tgz).size));
+  log("archiving...");
+  const archive = path.join(OUT_ROOT, "speedtest-deploy.tar");
+  /*
+    Not gzipped. The bulk of the bundle is images.tar, whose layers are already
+    compressed, so a second pass buys little for the time it costs - and a plain
+    .tar is what the extension says it is.
+
+    Relative paths, run from inside the output directory: GNU tar reads a
+    leading "C:" in a Windows path as a remote host and fails to resolve it.
+  */
+  sh("tar -cf speedtest-deploy.tar speedtest-deploy", { cwd: OUT_ROOT });
+  ok("bundle: " + path.relative(ROOT, archive) + "  " + human(fs.statSync(archive).size));
 
   console.log(
     "\nCopy it over, then on the server:\n" +
-      "  tar -xzf speedtest-deploy.tar.gz && cd speedtest-deploy\n" +
+      "  tar -xf speedtest-deploy.tar && cd speedtest-deploy\n" +
       "  docker load -i images.tar\n" +
       "  # then follow DEPLOY.md\n"
   );
