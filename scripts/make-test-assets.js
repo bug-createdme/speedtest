@@ -118,6 +118,73 @@ function haveFfmpeg() {
   }
 }
 
+function haveDocker() {
+  try {
+    execSync("docker version", { stdio: "pipe" });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/*
+  The encoder arguments, in one place, because they are the same whether ffmpeg
+  runs on this machine or inside a container - and because two copies would
+  eventually differ in the flag that matters (-movflags +faststart).
+
+  A synthetic clip is fine and a real one is not required: the stage measures
+  time-to-first-frame and stalls, which are properties of the player and the
+  link rather than of what is on screen.
+*/
+function ffmpegArgs(outPath) {
+  return (
+    "-y -f lavfi -i testsrc=size=1280x720:rate=30:duration=" + VIDEO_SECONDS +
+    " -f lavfi -i sine=frequency=440:duration=" + VIDEO_SECONDS +
+    " -c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p -c:a aac -b:a 128k" +
+    " -movflags +faststart " + outPath
+  );
+}
+
+/*
+  Check the one property that cannot be seen by looking at the file size: the
+  moov atom has to come before mdat. Without it a player cannot start until the
+  whole clip has arrived, and every measurement reads as one long buffering
+  event instead of a time-to-play - a wrong number rather than a missing one,
+  which is the failure mode this project keeps refusing to ship.
+*/
+function checkFaststart(file) {
+  const b = fs.readFileSync(file);
+  let off = 0;
+  const order = [];
+  while (off < b.length - 8) {
+    let size = b.readUInt32BE(off);
+    const type = b.toString("ascii", off + 4, off + 8);
+    if (size === 1) size = Number(b.readBigUInt64BE(off + 8));
+    if (size < 8) break;
+    order.push(type);
+    off += size;
+  }
+  const moov = order.indexOf("moov");
+  const mdat = order.indexOf("mdat");
+  return moov !== -1 && mdat !== -1 && moov < mdat;
+}
+
+function reportVideo(videoPath) {
+  const size = fs.statSync(videoPath).size;
+  const fast = checkFaststart(videoPath);
+  log(VIDEO_NAME + "  " + size.toLocaleString() + " bytes");
+  if (fast) {
+    log("  faststart verified: moov before mdat");
+  } else {
+    console.log(
+      "\x1b[33m[test-assets] ⚠ moov is NOT before mdat. Playback cannot start\n" +
+        "  until the whole clip arrives, so every run will read as one long\n" +
+        "  buffering event rather than a time-to-play. Re-encode with\n" +
+        "  -movflags +faststart.\x1b[0m"
+    );
+  }
+}
+
 function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
@@ -130,23 +197,22 @@ function main() {
   if (fs.existsSync(videoPath)) {
     log(VIDEO_NAME + " already present, left alone");
   } else if (haveFfmpeg()) {
-    /*
-      A synthetic clip is fine here and a real one is not required: the stage
-      measures time-to-first-frame and stalls, which are properties of the
-      player and the link, not of what is on screen. What DOES matter is that
-      it is a normal H.264/AAC MP4 with its moov atom at the front, or playback
-      cannot start until the whole file has arrived and every run reads as one
-      long buffering event.
-    */
     log("ffmpeg found, generating a " + VIDEO_SECONDS + "s 720p clip...");
+    execSync("ffmpeg " + ffmpegArgs('"' + videoPath + '"'), { stdio: "pipe" });
+    reportVideo(videoPath);
+  } else if (haveDocker()) {
+    /*
+      No ffmpeg on the machine, but Docker is here - so borrow one rather than
+      ask somebody to install a media toolchain to produce a ten-second test
+      clip. Nothing is left on the host afterwards.
+    */
+    log("no ffmpeg; using a container instead...");
     execSync(
-      'ffmpeg -y -f lavfi -i testsrc=size=1280x720:rate=30:duration=' + VIDEO_SECONDS +
-        ' -f lavfi -i sine=frequency=440:duration=' + VIDEO_SECONDS +
-        ' -c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p -c:a aac -b:a 128k' +
-        ' -movflags +faststart "' + videoPath + '"',
-      { stdio: "pipe" }
+      'docker run --rm -v "' + OUT_DIR + '":/out linuxserver/ffmpeg:latest ' +
+        ffmpegArgs("/out/" + VIDEO_NAME),
+      { stdio: "pipe", env: { ...process.env, MSYS_NO_PATHCONV: "1" } }
     );
-    log(VIDEO_NAME + "  " + fs.statSync(videoPath).size.toLocaleString() + " bytes");
+    reportVideo(videoPath);
   } else {
     log("\x1b[33mffmpeg not found - the video sample was NOT created.\x1b[0m");
     console.log(
