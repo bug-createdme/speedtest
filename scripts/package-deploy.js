@@ -101,6 +101,19 @@ function deployNotes(arch) {
     "**The images are " + arch + ".** On a different architecture they will not run.",
     "Re-package on a matching machine, or build from source on the target.",
     "",
+    "## 0 - Unpack",
+    "",
+    B + "sh",
+    "tar -xf speedtest-deploy.tar",
+    "cd speedtest-deploy",
+    B,
+    "",
+    "If you are reading this you have already done it. It is written down because",
+    "the outer archive is a bundle, not a Docker image: `docker load -i",
+    "speedtest-deploy.tar` answers `unrecognized image format`, which is easy to",
+    "read as a corrupt download rather than as the wrong file. The image archive",
+    "is `images.tar`, one level in.",
+    "",
     "## 1 - Load the images",
     "",
     B + "sh",
@@ -231,6 +244,32 @@ function main() {
   */
   sh("tar -cf speedtest-deploy.tar speedtest-deploy", { cwd: OUT_ROOT });
   ok("bundle: " + path.relative(ROOT, archive) + "  " + human(fs.statSync(archive).size));
+
+  /*
+    The same three commands, OUTSIDE the archive.
+
+    DEPLOY.md only becomes readable after unpacking, which is exactly the step
+    somebody has not taken yet when they reach for `docker load -i
+    speedtest-deploy.tar` - and Docker answers that with "unrecognized image
+    format", which reads like a corrupt transfer rather than the wrong file.
+    Send this file alongside the archive.
+  */
+  fs.writeFileSync(
+    path.join(OUT_ROOT, "README-FIRST.txt"),
+    [
+      "speedtest-deploy.tar is a BUNDLE, not a Docker image.",
+      "",
+      "  tar -xf speedtest-deploy.tar",
+      "  cd speedtest-deploy",
+      "  docker load -i images.tar        <- the image archive is this one, inside",
+      "",
+      "Then follow DEPLOY.md in that directory.",
+      "",
+      "Running `docker load -i speedtest-deploy.tar` on the bundle itself answers",
+      '"unrecognized image format". That means wrong file, not corrupt download.',
+      ""
+    ].join("\n")
+  );
 
   console.log(
     "\nCopy it over, then on the server:\n" +
