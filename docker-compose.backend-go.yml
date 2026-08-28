@@ -47,10 +47,19 @@ services:
     environment:
       # Read by viper via SetEnvPrefix("speedtest") + AutomaticEnv.
       #
-      # This is NOT optional. results/stats.go:54 treats the literal default
-      # "PASSWORD" as "no password configured" and then serves the statistics
-      # page - every recorded result, with client IPs and ISPs - to anyone who
-      # asks, with no login at all. Set it to something real.
+      # A password you choose, not one to look up: it is the login for the
+      # statistics page, which lists the client IP and ISP behind every recorded
+      # result. Password only, no username. Generate one with
+      # `openssl rand -base64 24` and keep it wherever passwords are kept - it
+      # appears nowhere else.
+      #
+      # Required because without it the page is unusable, not because it would
+      # be exposed. Checked against the source rather than assumed: with the
+      # literal default "PASSWORD", results/stats.go sets NoPassword and the
+      # template renders "Please set statistics_password ... to enable access"
+      # INSTEAD of the results - it fails closed. An earlier version of this
+      # comment claimed the opposite, that the default served every result to
+      # anyone who asked. That was wrong.
       SPEEDTEST_STATISTICS_PASSWORD: ${SPEEDTEST_STATISTICS_PASSWORD:?set a statistics password, e.g. SPEEDTEST_STATISTICS_PASSWORD=... docker compose up}
 
   # ── local verification, plain http ────────────────────────────────────────
