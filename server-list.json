@@ -1,7 +1,7 @@
 [
   {
     "name": "Local Go backend (dev)",
-    "server": "http://localhost:8989/",
+    "server": "http://localhost:8087/",
     "id": 1,
     "dlURL": "garbage.php",
     "ulURL": "empty.php",

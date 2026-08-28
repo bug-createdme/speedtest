@@ -82,7 +82,7 @@ docker compose -f docker-compose.backend-go.yml --profile tls up -d --build
 
 Không chọn profile thì chỉ `backend-go` chạy, và nó **không publish cổng nào** —
 bất tiện, nhưng đó là chiều an toàn. Bản `--profile dev` chạy HTTP trần trên
-:8989, chỉ dùng để kiểm chứng cục bộ.
+:8087, chỉ dùng để kiểm chứng cục bộ.
 
 ## 6 · Kiểm chứng
 
@@ -93,7 +93,14 @@ H=https://speedtest.example.la
 curl -s -o /dev/null -w '%{http_code} %{size_download}\n' "$H/garbage.php?ckSize=1&cors=true"
 ```
 
-Phải ra **`200 1048576`**. Rồi:
+Phải ra **`200 1048576`**.
+
+> Chạy ngay sau `up -d` có thể ra `200 0` hoặc một con số ngắn hơn: request đầu
+> tiên bị cắt trong lúc container còn khởi động (thấy rõ trên Docker Desktop /
+> Windows). Đợi vài giây rồi chạy lại — từ request thứ hai trở đi luôn đủ byte.
+> Ra ngắn **liên tục** thì mới là lỗi thật.
+
+Rồi:
 
 | Lệnh | Kết quả đúng |
 |---|---|
