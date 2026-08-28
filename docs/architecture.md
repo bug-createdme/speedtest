@@ -101,17 +101,42 @@ enable_tls=false
 enable_http2=false
 ```
 
+> ⚠ Đây là ví dụ **của upstream**, không phải cấu hình deploy. `enable_tls=false` và `database_type="memory"` ở trên đều không dùng được cho test server thật — xem "Cấu hình đề xuất cho test server" ngay dưới.
+
 - Docker sẵn có (`Dockerfile` ở root repo)
 
 ### ⚠ Một điểm bắt buộc phải giữ nguyên: `enable_http2=false`
 
 `speedtest_worker.js` mở **5 kết nối download song song** để vượt giới hạn single-flow TCP (xem Phase 1 §20). Nếu bật HTTP/2, cả 5 stream sẽ bị multiplex vào **một** TCP connection — toàn bộ lợi ích multi-stream biến mất, kết quả đo sai mà không có lỗi nào hiện ra. `speedtest-go` mặc định tắt HTTP/2 — **không được bật** khi deploy, kể cả sau này.
 
-### Cấu hình đề xuất cho giai đoạn thử nghiệm nội bộ
+### Cấu hình đề xuất cho test server
 
-- `database_type="memory"` hoặc `"none"` — không cần Postgres/MySQL cho pilot, telemetry tắt mặc định (khớp `settings.json` hiện tại: `telemetry_level: "off"`)
-- 1 instance duy nhất, đặt trong hạ tầng nội bộ Unitel
-- Không cần load balancer, không cần multi-region ở quy mô này
+> **Đính chính 2026-08-28.** Bản trước của mục này khuyến nghị **1 instance đặt trong hạ tầng nội bộ Unitel**, `database_type="memory"` hoặc `"none"`, và ghi telemetry tắt mặc định. Cả ba đều không còn đúng:
+>
+> - **Vị trí** đổi vì quyết định "3 nhà mạng đo trên 3 máy khác nhau" (REQ-001, chốt 27/08). Máy đo nằm trên **mạng di động**, không nằm trong LAN Unitel — một server IP nội bộ hoặc sau VPN thì từ điện thoại **không tồn tại**.
+> - **`database_type="none"`** mâu thuẫn với §4 bên dưới: giá trị đó tắt cả việc ghi lẫn trang thống kê. Hiện dùng `bolt`.
+> - **Telemetry** hiện là `telemetry_level: "full"` trong `settings.json`, không còn `"off"`.
+
+**Vị trí: công khai và trung lập.**
+
+Test server là *đầu bên kia của phép đo* — con số trong báo cáo là tốc độ giữa điện thoại và **chính máy đó**. Hai ràng buộc, cả hai bắt buộc:
+
+- **Truy cập được từ Internet công cộng.** Điện thoại đo bằng SIM Unitel / LTC / ETL, không nằm trong mạng nội bộ. IP `10.x` / `192.168.x` hoặc sau VPN là không dùng được.
+- **Trung lập giữa ba nhà mạng.** Nếu server nằm trong mạng Unitel, máy Unitel đi **on-net** còn máy LTC/ETL phải qua **peering** ⇒ Unitel luôn thắng **vì cấu hình đo, không phải vì chất lượng mạng**, và phép so sánh mất ý nghĩa. Dữ liệu nPerf của đối tác xác nhận cách làm đúng: cả ba nhà mạng đều được đo tới cùng nhóm server trung lập (chủ yếu *LA LaoTelecom 10G — Vientiane*, cộng các pool tại Thái Lan) — **kể cả Unitel cũng được đo tới server của đối thủ**. Đó là chủ ý, không phải ngẫu nhiên.
+
+Hệ quả: một DMZ công khai của Unitel vẫn còn thiên vị về tô-pô. Nó chỉ đủ cho báo cáo *riêng Unitel*, không đủ để so ba nhà mạng.
+
+**HTTPS bắt buộc.** Trang miniapp do super-app phục vụ qua `https://`, và WebView chặn mọi tài nguyên `http://` (mixed content) — triệu chứng giống hệt "test server chết", nên rất dễ mất thời gian truy nhầm. Build cũng từ chối đóng gói khi `server-list.json` còn `http://` hoặc `localhost` (CHANGE-002).
+
+**Băng thông của server là trần của phép đo.** Uplink 100 Mbps thì không bao giờ đo được quá 100 Mbps, và nhiều máy đo đồng thời còn chia nhau con số đó. Muốn đo 4G/5G có nghĩa thì cần **≥ 1 Gbps**. Ước tính lưu lượng (giả định 50 Mbps xuống / 10 Mbps lên, 12 giây mỗi chiều): khoảng **90 MB mỗi lần đo** ⇒ 100 lượt/ngày ≈ 9 GB/ngày. `garbage.php` có thể phục vụ tới 1 GiB mỗi request, nên rate limit của CHANGE-005 phải bật.
+
+**Phần cấu hình còn lại:**
+
+- `enable_http2=false` — xem cảnh báo ngay trên, không được bật kể cả sau này
+- `database_type="bolt"` — xem §4, **không** dùng `"none"`
+- `ALLOWED_ORIGINS` = origin của super-app; mặc định `*` chỉ hợp cho dev
+- Hai tệp mẫu cho bài đo Web và Video (`docs/test-assets.md`) đặt cùng server, vì chúng phải đọc được cross-origin
+- Vẫn 1 instance duy nhất: không cần load balancer, không cần multi-region ở quy mô này
 
 ### Chiến lược chuyển đổi (khuyến nghị cho Phase 3)
 
@@ -197,15 +222,38 @@ Contract đầy đủ (cách nạp SDK, calling convention, bảng API namespace
 
 Tóm tắt: bridge là **WindVane** (không phải MiniappSDK/LaoApp — ngoài phạm vi), gọi qua `window.WindVane.call(namespace, method, params, onSuccess, onError)`, script nạp từ CDN `alicdn.com`. Xác nhận có API loại mạng (`WVNetwork.getNetworkType`), vị trí, lưu trữ, contact picker, đóng mini-app (`WVMiniApp.close`, không phải `WVBase.closePage` như reference dùng sai). Còn 1 điểm chưa xác nhận: cách lấy ISDN đúng chuẩn (mục 9 dưới).
 
-## 7. Bảo mật cho giai đoạn thử nghiệm nội bộ
+## 7. Bảo mật
 
-Ở quy mô này, chấp nhận tạm thời:
-- Giữ nguyên `Access-Control-Allow-Origin: *` — chưa cần allowlist origin vì chưa public
-- Chưa cần rate-limiting
+> **Đính chính 2026-08-28.** Bản trước của mục này ghi *"chấp nhận tạm thời: giữ nguyên `Access-Control-Allow-Origin: *` — chưa cần allowlist origin vì chưa public"*, *"chưa cần rate-limiting"*, và khuyến nghị *"đặt sau VPN nội bộ Unitel"*. Cả ba đều không còn đúng: hai hạng mục đầu **đã được triển khai** (CHANGE-005, CHANGE-006), và VPN nội bộ mâu thuẫn với yêu cầu test server công khai ở §3. Nguy hiểm hơn §3: ai đọc bản cũ có thể **tắt allowlist đi** vì tin rằng "chưa cần".
 
-**Điều kiện bắt buộc trước khi sang giai đoạn 2 (nhúng vào super-app, có user thật):** phải chạy Phase 9 (Security) — allowlist CORS, rate limit cơ bản. Không được mang nguyên trạng bảo mật của giai đoạn thử nghiệm sang giai đoạn public.
+### Đã có, đã chạy thử
 
-Khuyến nghị thêm cho giai đoạn 1: đặt sau VPN nội bộ Unitel hoặc URL không công khai/không index, chưa gắn link từ trang chính thức.
+| Hạng mục | Ở đâu | Thực tế |
+|---|---|---|
+| Allowlist origin | `backend/cors_util.php`, biến `ALLOWED_ORIGINS` | Origin ngoài danh sách nhận **403 và 19 byte** thay vì cả payload — chặn *trước khi* stream. Bỏ trống nghĩa là `*`, chỉ hợp cho dev |
+| Rate limit | `docker/nginx-speedtest.conf` | `limit_conn 12`/IP, `limit_req 30r/s burst=120`, trả **429**. Đường ghi kết quả (`results/telemetry.php`) chặt hơn: `burst=5` |
+| Trần dung lượng | `backend/garbage.php` | `ckSize` bị kẹp ở **1024 MiB** — tối đa 1 GiB mỗi request |
+| Mật khẩu thống kê | `docker/entrypoint.sh` | Container **từ chối khởi động** nếu bật telemetry với mật khẩu rỗng hoặc phổ biến |
+| Trang thống kê | `docker/nginx-speedtest.conf` | `stats.php` giới hạn theo IP — trang này liệt kê IP và ISP của từng khách |
+
+**Cố ý KHÔNG làm:** không đặt `limit_rate` / `limit_rate_after` lên endpoint đo. Bóp băng thông ở proxy chính là bóp đại lượng đang đo — kết quả sai mà không có lỗi nào hiện ra. Cảnh báo này nằm ngay trong `nginx-speedtest.conf`.
+
+### ⚠ Ba chỗ hở nếu deploy backend Go ra Internet
+
+§3 khuyến nghị dùng backend Go, nhưng **mọi biện pháp ở bảng trên đều thuộc bản PHP + nginx**. `docker-compose.backend-go.yml` phơi thẳng cổng 8989, không có proxy nào phía trước:
+
+1. **Không có rate limit nào trong `backend-go/`.** Phơi thẳng ra Internet là một máy khuếch đại băng thông mở, không xác thực.
+2. **Allowlist origin không áp dụng được.** `backend-go/web/web.go` hard-code `AllowedOrigins: []string{"*"}`; `ALLOWED_ORIGINS` là biến của bản PHP, Go không đọc.
+3. **`stats.php` của Go không bị giới hạn IP** — có mật khẩu (compose bắt buộc `SPEEDTEST_STATISTICS_PASSWORD`), nhưng trang liệt kê IP/ISP của từng phép đo vẫn phơi ra Internet.
+
+**Cách xử lý:** đặt nginx phía trước backend Go và mang theo cấu hình `docker/nginx-speedtest.conf` — nó cung cấp cả ba thứ trên. Đừng publish cổng 8989 ra ngoài.
+
+### Việc phải làm khi lên server công khai
+
+- Đặt `ALLOWED_ORIGINS` = origin của super-app (bản PHP), hoặc lọc origin ở nginx (bản Go)
+- Thay `allow 10.0.0.0/8` trong `nginx-speedtest.conf` bằng **dải mạng thật của phòng vận hành** — dải nội bộ đó sẽ không khớp ai trên server công khai
+- Đặt mật khẩu thống kê thật; cả hai backend đều từ chối chạy với mật khẩu mặc định
+- Toàn bộ qua HTTPS (§3)
 
 ## 8. Thay đổi cụ thể trong repo (đầu vào cho Phase 3)
 
