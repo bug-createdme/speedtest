@@ -17,6 +17,7 @@
     "dev": "npm run ui:dev",
     "build": "npm run ui:build",
     "build:mini": "node scripts/build-mini.js",
+    "package:deploy": "node scripts/package-deploy.js",
     "ui:dev": "vite --config ui/vite.config.mjs",
     "ui:build": "vite build --config ui/vite.config.mjs",
     "ui:preview": "vite preview --config ui/vite.config.mjs",

@@ -13,3 +13,4 @@ mini-build/
 *.zip
 test-assets/
 backend/assets/
+deploy/
