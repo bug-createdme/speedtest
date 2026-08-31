@@ -121,7 +121,10 @@ Cuối cùng, xác nhận backend không lọt ra ngoài:
 docker compose -f docker-compose.backend-go.yml --profile tls ps
 ```
 
-`backend-go` phải hiện `8087/tcp` — **không** có `0.0.0.0:`.
+`backend-go` phải hiện `8087/tcp, 8989/tcp` — **không** có `0.0.0.0:`. 8989 là `EXPOSE`
+mặc định của image upstream, chỉ là metadata; cổng backend thực sự lắng nghe do
+`docker/backend-go.settings.toml` quyết định. Thứ phải kiểm là không có `0.0.0.0:`
+— không cổng nào của backend lọt ra host.
 
 ## 7 · Nối miniapp vào server
 
