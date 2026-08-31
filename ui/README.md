@@ -19,7 +19,7 @@ A backend must be reachable. For local work:
 docker compose -f docker-compose.backend-go.yml up -d --build
 ```
 
-then point `server-list.json` at `http://localhost:8989/`. The shipped list is
+then point `server-list.json` at `http://localhost:8087/`. The shipped list is
 37 international LibreSpeed community servers and measures the route to
 *those*, not to Unitel - see `docs/architecture.md` §5.
 

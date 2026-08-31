@@ -10,7 +10,7 @@
 # statistics password is set that way - see docker-compose.backend-go.yml.
 
 bind_address = ""
-listen_port = 8989
+listen_port = 8087
 
 # MUST stay false. speedtest_worker.js opens 5 parallel download streams to get
 # past the single-flow TCP ceiling. Over HTTP/2 all five multiplex onto ONE TCP

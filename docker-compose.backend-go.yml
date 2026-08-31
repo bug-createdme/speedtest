@@ -31,7 +31,7 @@ services:
       context: ./backend-go
     # Deliberately NOT published. nginx is the only way in.
     expose:
-      - "8989"
+      - "8087"
     volumes:
       # Config kept in this repo instead of patched into the submodule.
       - ./docker/backend-go.settings.toml:/app/settings.toml:ro

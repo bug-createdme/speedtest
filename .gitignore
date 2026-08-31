@@ -14,3 +14,7 @@ mini-build/
 test-assets/
 backend/assets/
 deploy/
+backend-go/.bin
+.env
+uploads/
+docker-backend-go.zip
