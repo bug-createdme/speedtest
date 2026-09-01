@@ -29,7 +29,14 @@ export const isdn = ref("");
 export const networkType = ref("");
 
 export function isSuperApp() {
-  return typeof window !== "undefined" && typeof window.WindVane !== "undefined";
+  const win = typeof window !== "undefined" ? window : globalThis;
+  return (
+    typeof win !== "undefined" &&
+    (typeof win.WindVane !== "undefined" ||
+      typeof win.MiniappSDK !== "undefined" ||
+      typeof win.AlipayJSBridge !== "undefined" ||
+      typeof win.my !== "undefined")
+  );
 }
 
 /*
@@ -156,12 +163,35 @@ export function parseAuthCode(result) {
   a subscriber identifier on the device is the safer default.
 */
 export async function fetchSubscriber() {
-  const result = await call("wv", "getAuthCode", {
-    scopes: ["USER_ID", "USER_NAME"]
-  });
-  const parsed = parseAuthCode(result);
-  if (parsed) isdn.value = parsed.isdn;
-  return parsed;
+  if (typeof window !== "undefined" && window.WindVane) {
+    const result = await call("wv", "getAuthCode", {
+      scopes: ["USER_ID", "USER_NAME"]
+    });
+    const parsed = parseAuthCode(result);
+    if (parsed) {
+      isdn.value = parsed.isdn;
+      return parsed;
+    }
+  }
+
+  if (
+    typeof window !== "undefined" &&
+    window.MiniappSDK &&
+    typeof window.MiniappSDK.getUserInfo === "function"
+  ) {
+    try {
+      const user = await window.MiniappSDK.getUserInfo();
+      const num = user?.phone || user?.isdn || user?.id || "";
+      if (num) {
+        isdn.value = String(num);
+        return { isdn: String(num) };
+      }
+    } catch (e) {
+      console.warn("[MiniappSDK] getUserInfo failed", e);
+    }
+  }
+
+  return null;
 }
 
 /*
@@ -179,10 +209,33 @@ export function parseNetworkType(result) {
 }
 
 export async function fetchNetworkType() {
-  const result = await call("WVNetwork", "getNetworkType");
-  const parsed = parseNetworkType(result);
-  if (parsed) networkType.value = parsed;
-  return parsed;
+  if (typeof window !== "undefined" && window.WindVane) {
+    const result = await call("WVNetwork", "getNetworkType");
+    const parsed = parseNetworkType(result);
+    if (parsed) {
+      networkType.value = parsed;
+      return parsed;
+    }
+  }
+
+  if (
+    typeof window !== "undefined" &&
+    window.MiniappSDK &&
+    typeof window.MiniappSDK.getNetworkInfo === "function"
+  ) {
+    try {
+      const info = await window.MiniappSDK.getNetworkInfo();
+      const parsed = parseNetworkType(info);
+      if (parsed) {
+        networkType.value = parsed;
+        return parsed;
+      }
+    } catch (e) {
+      console.warn("[MiniappSDK] getNetworkInfo failed", e);
+    }
+  }
+
+  return "";
 }
 
 /*
@@ -273,45 +326,135 @@ export async function initBridge(sdkUrl) {
 }
 
 /**
- * Exit/close the MiniApp and return to the SuperApp host screen.
- * Implements a cascading fallback sequence as established in miniapp-predict-worldcup.
+ * Close the mini-app and hand control back to the super-app.
+ *
+ * WHAT WAS WRONG
+ *
+ * This used to finish with history.back(), and its WindVane list led with
+ * WVNavigator.pop. Both mean "go back one page". On a host where none of the
+ * close methods are implemented they were the only calls with a visible
+ * effect, so logging out behaved as Back: the session was cleared and the
+ * screen that appeared belonged to somebody no longer signed in.
+ *
+ * Neither is coming back. A logout control that quietly degrades into Back is
+ * worse than one that appears to do nothing, because doing nothing leaves the
+ * caller free to show the login screen - which is what logout() already does.
+ *
+ * WHY EVERY CANDIDATE IS STILL TRIED, RATHER THAN STOPPING AT THE FIRST
+ *
+ * Because none of them reports success in a way worth trusting. WindVane's
+ * call() answers null both for a failure and for a method that succeeded
+ * without returning anything, and a host bridge that is simply absent looks
+ * the same as one that declined.
+ *
+ * So the list is fired in full. Every entry means "close"; none navigates.
+ *
+ * FINDING THE ONE THAT WORKS
+ *
+ * Which bridge this host implements is not documented anywhere we have. The
+ * environment line below is how to find out: open vConsole on the device, tap
+ * logout, and read what is present. Then add the method that is really there.
  */
-export function exitApp() {
-  console.log('[WindVane] Close app requested');
-  if (typeof window === 'undefined') return;
+export async function exitApp() {
+  const win = typeof window !== "undefined" ? window : globalThis;
+  if (typeof win === "undefined") return;
 
-  if (window.WindVane) {
-    window.WindVane.call('WVMiniApp', 'close', {},
-      () => console.log('[WindVane] Closed via WVMiniApp.close'),
-      () => {
-        window.WindVane.call('WVNavigator', 'pop', {},
-          () => console.log('[WindVane] Closed via WVNavigator.pop'),
-          () => {
-            window.WindVane.call('WVUINavigator', 'pop', {},
-              () => console.log('[WindVane] Closed via WVUINavigator.pop'),
-              () => {
-                window.WindVane.call('WVApplication', 'close', {},
-                  () => console.log('[WindVane] Closed via WVApplication.close'),
-                  (e) => {
-                    console.error('[WindVane] All close methods failed, fallback to window.close', e);
-                    try { window.close(); } catch (err) {}
-                  }
-                );
-              }
-            );
-          }
-        );
-      }
-    );
-  } else if (window.AlipayJSBridge) {
+  console.log("[bridge] exitApp: bridges present", {
+    MiniappSDK: typeof win.MiniappSDK !== "undefined",
+    WindVane: typeof win.WindVane !== "undefined",
+    AlipayJSBridge: typeof win.AlipayJSBridge !== "undefined",
+    my: typeof win.my !== "undefined",
+    webkitHandlers:
+      win.webkit && win.webkit.messageHandlers
+        ? Object.keys(win.webkit.messageHandlers)
+        : null,
+    userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null
+  });
+
+  /* 1. LaoApp MiniappSDK, injected by that host - never imported from npm. */
+  if (win.MiniappSDK && typeof win.MiniappSDK.closeApp === "function") {
     try {
-      window.AlipayJSBridge.call('exitApp');
+      await win.MiniappSDK.closeApp();
     } catch (e) {
-      try { window.close(); } catch (err) {}
+      console.warn("[bridge] MiniappSDK.closeApp rejected", e);
     }
-  } else {
+  }
+
+  /* 2. Ali WindVane. Close only - the pop variants are what turned this
+     button into Back. */
+  if (win.WindVane && typeof win.WindVane.call === "function") {
+    const methods = [
+      /*
+        WVBase.closePage first, and not by guesswork: it is the single call the
+        Unitel reference mini-app makes to close itself on this same Ali host
+        (ui/src/plugins/windvane.js there, reached from AppHeader's exit
+        button). Nothing else is tried around it in that project.
+      */
+      ["WVBase", "closePage"],
+      ["WVMiniApp", "close"],
+      ["WVApplication", "close"],
+      ["CustomServiceJs", "close"],
+      ["CustomServiceJs", "exitApp"]
+    ];
+    for (const [ns, method] of methods) {
+      const result = await call(ns, method, {}, 1500);
+      if (result !== null) {
+        console.log("[bridge] exitApp: " + ns + "." + method + " answered", result);
+      }
+    }
+  }
+
+  /* 3. AlipayJSBridge. exitApp only: closeWebview and popWindow are both
+     back-navigations. */
+  if (win.AlipayJSBridge && typeof win.AlipayJSBridge.call === "function") {
     try {
-      window.close();
+      win.AlipayJSBridge.call("exitApp");
+    } catch (e) {
+      console.warn("[bridge] AlipayJSBridge.exitApp threw", e);
+    }
+  }
+
+  /* 4. Alipay mini program API. navigateBack is not called here, for the same
+     reason as the pop variants. */
+  if (win.my && typeof win.my.exitMiniProgram === "function") {
+    try {
+      win.my.exitMiniProgram();
+    } catch (e) {
+      console.warn("[bridge] my.exitMiniProgram threw", e);
+    }
+  }
+
+  /* 5. iOS message handlers, if the host installed one under a name we know. */
+  if (win.webkit && win.webkit.messageHandlers) {
+    const handlers = [
+      "closeApp",
+      "closeMiniApp",
+      "exitApp",
+      "closePage",
+      "MiniappSDK"
+    ];
+    for (const name of handlers) {
+      const handler = win.webkit.messageHandlers[name];
+      if (handler && typeof handler.postMessage === "function") {
+        try {
+          handler.postMessage({ action: "closeApp" });
+          console.log("[bridge] exitApp: posted to webkit handler " + name);
+        } catch (e) {
+          console.warn("[bridge] webkit handler " + name + " threw", e);
+        }
+      }
+    }
+  }
+
+  /* 6. Plain web. Does nothing inside a WebView, but it is not a
+     back-navigation either, so it costs nothing to ask. */
+  if (typeof win.close === "function") {
+    try {
+      win.close();
     } catch (e) {}
   }
 }
+
+
+
+

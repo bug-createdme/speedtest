@@ -36,25 +36,8 @@
   </head>
   <body>
     <div id="app"></div>
-    <!--
-      The WindVane SDK is NOT loaded here.
-
-      There used to be a hard-coded <script src="https://g.alicdn.com/..."> on
-      this line, which contradicted the mechanism already built for it: the URL
-      is configuration (windvane_sdk_url in settings.json) and src/bridge/windvane.js
-      fetches it with loadSdk(). Two things were wrong with the tag:
-
-      - It was a classic, non-deferred script, so it BLOCKED the parser. The
-        moment this app became usable was gated on the round trip to a CDN that
-        has no presence in Laos - on a page whose whole job is to cope with a
-        slow connection.
-      - It fired on the plain web deployment too, where there is no super-app
-        and nothing to bridge to, making a third-party request for nothing.
-
-      Inside the super-app the host injects window.WindVane itself, so loadSdk()
-      sees isSuperApp() and fetches nothing at all. Set windvane_sdk_url to ""
-      in settings.json for a build that must never touch the CDN.
-    -->
+    <!-- WindVane SDK - REQUIRED for SuperApp integration -->
+    <script src="https://g.alicdn.com/superapp-cloud/js-library-windvane/3.1.3/windvane.js"></script>
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>

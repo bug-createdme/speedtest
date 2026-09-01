@@ -123,3 +123,40 @@ describe("compareNetwork", () => {
     expect(compareNetwork(snap("4g"), snap("4G"))).toBeNull();
   });
 });
+
+describe("isSuperApp", () => {
+  it("detects WindVane", async () => {
+    const { isSuperApp } = await import("../../ui/src/bridge/windvane.js");
+    const original = globalThis.WindVane;
+    globalThis.WindVane = {};
+    expect(isSuperApp()).toBe(true);
+    globalThis.WindVane = original;
+  });
+
+  it("detects MiniappSDK (LaoApp)", async () => {
+    const { isSuperApp } = await import("../../ui/src/bridge/windvane.js");
+    const original = globalThis.MiniappSDK;
+    globalThis.MiniappSDK = { closeApp: () => Promise.resolve() };
+    expect(isSuperApp()).toBe(true);
+    delete globalThis.MiniappSDK;
+    if (original) globalThis.MiniappSDK = original;
+  });
+});
+
+describe("exitApp", () => {
+  it("calls MiniappSDK.closeApp if available", async () => {
+    let closed = false;
+    globalThis.MiniappSDK = {
+      closeApp: () => {
+        closed = true;
+        return Promise.resolve();
+      }
+    };
+    const { exitApp } = await import("../../ui/src/bridge/windvane.js");
+    await exitApp();
+    expect(closed).toBe(true);
+    delete globalThis.MiniappSDK;
+  });
+});
+
+

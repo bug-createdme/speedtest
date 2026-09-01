@@ -4,7 +4,12 @@ import { logout } from "../state/session.js";
 
 const { t } = useI18n();
 
-function handleLogout() {
+function handleLogout(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  console.log("[LogoutButton] User tapped logout");
   logout();
 }
 </script>
@@ -16,6 +21,7 @@ function handleLogout() {
     :aria-label="t('action.logout')"
     :title="t('action.logout')"
     @click="handleLogout"
+    @touchend="handleLogout"
   >
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path

@@ -30,5 +30,13 @@ export function logout() {
   if (test.running) abortTest();
   isdn.value = "";
   goTo(SCREEN.INITIAL);
+  try {
+    localStorage.removeItem("wv_isdn");
+    localStorage.removeItem("wv_fullname");
+    localStorage.removeItem("ISDN");
+    localStorage.removeItem("user_info");
+    sessionStorage.clear();
+  } catch (e) {}
   exitApp();
 }
+
