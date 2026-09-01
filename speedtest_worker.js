@@ -369,6 +369,17 @@ this.addEventListener("message", function(e) {
 				//Safari also needs the IE11 workaround but only for the MPOT version
 				settings.forceIE11Workaround = true;
 			}
+			if (/(iPhone|iPad|iPod)/i.test(ua) && /AppleWebKit/i.test(ua)) {
+				// Every browser and every embedded WebView on iOS is WebKit, so they all
+				// share the bug the line above works around. An in-app WKWebView carries
+				// no "Safari" token for that check to match - the super-app sends:
+				//   ...Mobile/15E148 AliApp(...) WindVane/8.6.1 EMAS Superapp ... WK
+				// Missed here, the upload test reports 0.00 Mbps while the bytes really
+				// do go out: the POSTs answer 200, the loaded-latency probe registers the
+				// traffic, and nothing anywhere reports an error. Verified against that
+				// exact UA from the test point's own access log.
+				settings.forceIE11Workaround = true;
+			}
 			//telemetry_level has to be parsed and not just copied
 			if (typeof s.telemetry_level !== "undefined") settings.telemetry_level = s.telemetry_level === "basic" ? 1 : s.telemetry_level === "full" ? 2 : s.telemetry_level === "debug" ? 3 : 0; // telemetry level
 			//transform test_order to uppercase, just in case
