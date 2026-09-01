@@ -160,3 +160,79 @@ describe("exitApp", () => {
 });
 
 
+
+/*
+  The two decisions that made the logout button look dead.
+
+  window.WindVane is created by a script fetched from a CDN, and that fetch has
+  been observed both failing outright and succeeding seconds later on the same
+  handset. Deciding "is this the super-app" on the object alone turned a slow
+  fetch into a permanent verdict of "plain web page", after which nothing on
+  the bridge was ever tried again.
+*/
+describe("isSuperApp from the User-Agent", () => {
+  const withUA = (ua, fn) => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    Object.defineProperty(globalThis, "navigator", {
+      value: { userAgent: ua },
+      configurable: true,
+      writable: true
+    });
+    try {
+      return fn();
+    } finally {
+      if (original) Object.defineProperty(globalThis, "navigator", original);
+      else delete globalThis.navigator;
+    }
+  };
+
+  it("says yes on the super-app UA even before the bridge object exists", async () => {
+    const { isSuperApp } = await import("../../ui/src/bridge/windvane.js");
+    const ua =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 " +
+      "(KHTML, like Gecko) Mobile/15E148 AliApp(EMASDemo/3.1.22) WindVane/8.6.1 " +
+      "EMAS Superapp 1170x2532 Winding(WV_2) WK";
+    const hadWindVane = globalThis.WindVane;
+    delete globalThis.WindVane;
+    const result = withUA(ua, () => isSuperApp());
+    if (hadWindVane) globalThis.WindVane = hadWindVane;
+    expect(result).toBe(true);
+  });
+
+  it("says no on a plain browser with no bridge", async () => {
+    const { isSuperApp } = await import("../../ui/src/bridge/windvane.js");
+    const hadWindVane = globalThis.WindVane;
+    delete globalThis.WindVane;
+    const result = withUA(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      () => isSuperApp()
+    );
+    if (hadWindVane) globalThis.WindVane = hadWindVane;
+    expect(result).toBe(false);
+  });
+});
+
+describe("whenBridgeReady", () => {
+  it("resolves true when the bridge arrives after the first look", async () => {
+    const { whenBridgeReady } = await import("../../ui/src/bridge/windvane.js");
+    const original = globalThis.WindVane;
+    delete globalThis.WindVane;
+    setTimeout(() => {
+      globalThis.WindVane = { call: () => {} };
+    }, 250);
+    const ready = await whenBridgeReady(2000);
+    delete globalThis.WindVane;
+    if (original) globalThis.WindVane = original;
+    expect(ready).toBe(true);
+  });
+
+  it("gives up rather than hanging when it never arrives", async () => {
+    const { whenBridgeReady } = await import("../../ui/src/bridge/windvane.js");
+    const original = globalThis.WindVane;
+    delete globalThis.WindVane;
+    const ready = await whenBridgeReady(400);
+    if (original) globalThis.WindVane = original;
+    expect(ready).toBe(false);
+  });
+});

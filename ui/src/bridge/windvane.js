@@ -28,15 +28,75 @@ export const isdn = ref("");
    navigator.connection, which does not exist at all on iOS. */
 export const networkType = ref("");
 
+/*
+  Whether this build is running inside the super-app.
+
+  Decided from the User-Agent FIRST, and only then from the bridge objects.
+  That order is the whole point.
+
+  window.WindVane does not exist when this document finishes parsing. It is
+  created by a script fetched from a CDN in China, and that fetch is not
+  dependable from a handset here - it has been seen failing outright, with
+  nothing in the console but
+
+    GET <script> error: https://g.alicdn.com/.../windvane.js
+
+  and seen succeeding minutes later from the same phone on the same network.
+
+  Deciding on the object alone turns one slow or failed fetch into a permanent
+  verdict: the app concludes it is a plain web page, call() returns null before
+  touching anything, and the bridge is never used again even after the script
+  finally lands. That is what made the logout button appear dead while the
+  super-app around it was working fine.
+
+  The User-Agent is present the moment the document parses and owes nothing to
+  the network, so it is the signal that can be trusted. The reference mini-app
+  that does close correctly in this super-app decides the same way, then waits
+  for the object - see whenBridgeReady below.
+*/
+const SUPER_APP_UA = /WindVane|AlipayClient|AliApp/i;
+
 export function isSuperApp() {
   const win = typeof window !== "undefined" ? window : globalThis;
+  if (typeof win === "undefined") return false;
+  const ua = win.navigator && win.navigator.userAgent;
+  if (ua && SUPER_APP_UA.test(ua)) return true;
   return (
-    typeof win !== "undefined" &&
-    (typeof win.WindVane !== "undefined" ||
-      typeof win.MiniappSDK !== "undefined" ||
-      typeof win.AlipayJSBridge !== "undefined" ||
-      typeof win.my !== "undefined")
+    typeof win.WindVane !== "undefined" ||
+    typeof win.MiniappSDK !== "undefined" ||
+    typeof win.AlipayJSBridge !== "undefined" ||
+    typeof win.my !== "undefined"
   );
+}
+
+/* How long a call() waits for the bridge to show up, and how often it looks.
+   Both match the reference mini-app that works. */
+const BRIDGE_WAIT_MS = 4000;
+const BRIDGE_POLL_MS = 200;
+
+/*
+  Resolve true once window.WindVane exists, false if it has not appeared within
+  timeoutMs. Every call() goes through here, so one issued while the SDK script
+  is still in flight still reaches the bridge instead of quietly doing nothing.
+
+  Giving up is not an error. The plain web build has no bridge and must never
+  wait for one; that is why isSuperApp() is checked before this is.
+*/
+export function whenBridgeReady(timeoutMs) {
+  const win = typeof window !== "undefined" ? window : globalThis;
+  const present = () => typeof win !== "undefined" && typeof win.WindVane !== "undefined";
+  if (present()) return Promise.resolve(true);
+  return new Promise(resolve => {
+    let waited = 0;
+    const limit = timeoutMs || BRIDGE_WAIT_MS;
+    const tick = () => {
+      if (present()) return resolve(true);
+      waited += BRIDGE_POLL_MS;
+      if (waited >= limit) return resolve(false);
+      setTimeout(tick, BRIDGE_POLL_MS);
+    };
+    setTimeout(tick, BRIDGE_POLL_MS);
+  });
 }
 
 /*
@@ -52,13 +112,15 @@ export function isSuperApp() {
 */
 export function loadSdk(url, timeoutMs) {
   return new Promise(resolve => {
-    if (isSuperApp()) return resolve(true);
+    if (typeof window !== "undefined" && typeof window.WindVane !== "undefined") {
+      return resolve(true);
+    }
     if (!url) return resolve(false);
     let settled = false;
     const finish = ok => {
       if (settled) return;
       settled = true;
-      resolve(ok && isSuperApp());
+      resolve(ok && typeof window !== "undefined" && typeof window.WindVane !== "undefined");
     };
     const timer = setTimeout(() => finish(false), timeoutMs || 4000);
     try {
@@ -88,9 +150,16 @@ export function loadSdk(url, timeoutMs) {
   native bridge that silently drops a call would otherwise leave this pending
   forever, and anything awaiting it would hang.
 */
-export function call(namespace, method, params, timeoutMs) {
+export async function call(namespace, method, params, timeoutMs) {
+  if (!isSuperApp()) return null;
+  if (!(await whenBridgeReady())) {
+    console.warn(
+      "[windvane] " + namespace + "." + method + " skipped: no bridge after " +
+        BRIDGE_WAIT_MS + "ms"
+    );
+    return null;
+  }
   return new Promise(resolve => {
-    if (!isSuperApp()) return resolve(null);
     let settled = false;
     const finish = value => {
       if (settled) return;
