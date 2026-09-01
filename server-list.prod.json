@@ -1,0 +1,12 @@
+[
+  {
+    "name": "Vientiane - Unitel test point",
+    "server": "https://be-unitel.laoone.la/speedtest/",
+    "id": 1,
+    "dlURL": "garbage.php",
+    "ulURL": "empty.php",
+    "pingURL": "empty.php",
+    "getIpURL": "getIP.php",
+    "telemetryURL": "results/telemetry.php"
+  }
+]
