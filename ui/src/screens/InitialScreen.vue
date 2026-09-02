@@ -1,12 +1,18 @@
 <script setup>
-import { computed } from "vue";
+import { computed, onMounted } from "vue";
 import StartButton from "../components/StartButton.vue";
 import { useI18n } from "../i18n/index.js";
-import { test } from "../state/test.js";
+import { fetchClientIp, test } from "../state/test.js";
 import { SCREEN, connectionType, goTo } from "../state/ui.js";
 
 defineEmits(["start"]);
 const { t } = useI18n();
+
+onMounted(() => {
+  if (!test.ip) {
+    fetchClientIp();
+  }
+});
 
 const serverName = computed(() => {
   const s = test.selectedServer;
@@ -19,8 +25,8 @@ const hasChoice = computed(() => test.servers.length > 1);
 const facts = computed(() =>
   [
     { key: "conn", label: t("net.connection"), value: connectionType.value },
-    { key: "ip", label: "IP", value: test.ip },
-    { key: "isp", label: "ISP", value: test.isp }
+    { key: "isp", label: "ISP", value: test.isp },
+    { key: "ip", label: "IP", value: test.ip }
   ].filter((fact) => fact.value)
 );
 </script>

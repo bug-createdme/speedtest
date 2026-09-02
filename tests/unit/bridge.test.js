@@ -125,12 +125,19 @@ describe("compareNetwork", () => {
 });
 
 describe("isSuperApp", () => {
-  it("detects WindVane", async () => {
+  /*
+    window.WindVane alone proves nothing now. The app vendors the JSAPI
+    bootstrap, and that script defines window.WindVane wherever it runs -
+    including the plain web build, which must not start calling JSAPIs.
+  */
+  it("does not treat window.WindVane alone as the super-app", async () => {
     const { isSuperApp } = await import("../../ui/src/bridge/windvane.js");
     const original = globalThis.WindVane;
     globalThis.WindVane = {};
-    expect(isSuperApp()).toBe(true);
-    globalThis.WindVane = original;
+    const result = isSuperApp();
+    if (original) globalThis.WindVane = original;
+    else delete globalThis.WindVane;
+    expect(result).toBe(false);
   });
 
   it("detects MiniappSDK (LaoApp)", async () => {

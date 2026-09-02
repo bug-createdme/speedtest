@@ -264,7 +264,7 @@ export function buildRecord(input) {
       still resolved (best effort), because NET_TYPE null already marks the row
       as unverified. See context/operator.js.
     */
-    MOBILE_OPERATOR: net === "wifi" || net === "ethernet" ? null : normaliseOperator(t.isp),
+    MOBILE_OPERATOR: net === "wifi" || net === "ethernet" ? null : normaliseOperator(t.isp, t.ip),
     IPV4: strOrNull(t.ip),
     IPV6: null,
     NET_TYPE: net,

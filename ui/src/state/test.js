@@ -4,6 +4,7 @@ import { locale } from "../i18n/index.js";
 import { connectionType } from "./ui.js";
 import { compareNetwork, networkSnapshot, watchNetwork } from "../context/network.js";
 import { fetchLocation } from "../context/location.js";
+import { getOperatorFromIp, parseIpResponse } from "../context/operator.js";
 import { runStreamingTest } from "../measurement/streaming.js";
 import { initBridge, isdn } from "../bridge/windvane.js";
 
@@ -379,6 +380,42 @@ function newInstance() {
   return s;
 }
 
+/**
+ * Proactively fetch client IP and ISP from the selected or default test server
+ * before starting a test, so that InitialScreen can display IP & ISP immediately.
+ */
+export async function fetchClientIp(server) {
+  const target = server || test.selectedServer || (test.servers && test.servers[0]);
+  if (!target) return;
+
+  const baseUrl = target.server || "";
+  const getIpPath = target.getIpURL || "getIP.php";
+
+  let fullUrl = "";
+  if (/^https?:\/\//i.test(getIpPath)) {
+    fullUrl = getIpPath;
+  } else {
+    fullUrl = `${baseUrl.replace(/\/$/, "")}/${getIpPath.replace(/^\//, "")}`;
+  }
+  const sep = fullUrl.includes("?") ? "&" : "?";
+  fullUrl = `${fullUrl}${sep}cors=true&r=${Math.random()}`;
+
+  try {
+    const res = await fetch(fullUrl);
+    if (!res.ok) return;
+    const text = await res.text();
+    if (text) {
+      const parsed = parseIpResponse(text);
+      if (parsed.ip) {
+        test.ip = parsed.ip;
+        test.isp = parsed.isp;
+      }
+    }
+  } catch (e) {
+    // ignore fetch error on early probe
+  }
+}
+
 /*
   Server selection. Runs in the background and never blocks the Start button -
   docs/analysis-phase1.md §13 calls this out as the main UX defect of the old
@@ -399,8 +436,12 @@ export async function beginServerSelection() {
   if (servers.length === 1) {
     test.selectedServer = servers[0];
     test.selection.running = false;
+    fetchClientIp(test.selectedServer);
     return;
   }
+
+  // Fetch client IP immediately from the default/first server in list
+  fetchClientIp(servers[0]);
 
   test.selection = { running: true, done: 0, total: servers.length };
   const selector = newInstance();
@@ -426,7 +467,10 @@ export async function beginServerSelection() {
 
     if (best) {
       // Only adopt the auto-pick if the user has not chosen one meanwhile.
-      if (!test.selectedServer) test.selectedServer = best;
+      if (!test.selectedServer) {
+        test.selectedServer = best;
+        fetchClientIp(best);
+      }
     } else if (!test.selectedServer) {
       /*
         Every server failed. The old UI raised a native alert() here
@@ -441,6 +485,7 @@ export async function beginServerSelection() {
 
 export function chooseServer(server) {
   test.selectedServer = server;
+  fetchClientIp(server);
 }
 
 export async function initEngine() {
@@ -868,10 +913,11 @@ export function startTest() {
     if (data.testId) test.testId = data.testId;
 
     if (data.clientIp) {
-      // getIP.php returns "ip - isp, distance" when ISP info is on.
-      const [ip, ...rest] = String(data.clientIp).split(" - ");
-      test.ip = ip.trim();
-      test.isp = rest.join(" - ").trim();
+      const parsed = parseIpResponse(data.clientIp);
+      if (parsed.ip) {
+        test.ip = parsed.ip;
+        test.isp = parsed.isp;
+      }
     }
 
     if (stage === STAGE.DOWNLOAD && test.download > 0) {

@@ -27,8 +27,13 @@ const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 */
 const ENGINE_FILES = ["speedtest.js", "speedtest_worker.js", "settings.json"];
 
-/* Root-level static assets the page references by absolute path. */
-const ROOT_ASSETS = ["favicon.ico"];
+/*
+  Root-level static assets the page references by absolute path.
+
+  windvane.js is the super-app's JSAPI bootstrap, vendored rather than fetched
+  from g.alicdn.com - see the note on the script tag in ui/index.html.
+*/
+const ROOT_ASSETS = ["favicon.ico", "windvane.js"];
 
 /*
   server-list.json is handled apart from these, by resolveServerList() below:

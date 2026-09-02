@@ -54,15 +54,21 @@ export const networkType = ref("");
   that does close correctly in this super-app decides the same way, then waits
   for the object - see whenBridgeReady below.
 */
-const SUPER_APP_UA = /WindVane|AlipayClient|AliApp/i;
+const SUPER_APP_UA = /WindVane|AlipayClient|AliApp|LaoApp|SuperApp|Unitel|MiniApp/i;
 
 export function isSuperApp() {
   const win = typeof window !== "undefined" ? window : globalThis;
   if (typeof win === "undefined") return false;
   const ua = win.navigator && win.navigator.userAgent;
   if (ua && SUPER_APP_UA.test(ua)) return true;
+  /*
+    window.WindVane is deliberately NOT in this list. The app now ships the
+    JSAPI bootstrap itself (ui/index.html), and that script creates
+    window.WindVane on every platform it runs on, plain web included - so its
+    presence stopped being evidence of anything the moment it was vendored.
+    The globals below are still injected by a host or not at all.
+  */
   return (
-    typeof win.WindVane !== "undefined" ||
     typeof win.MiniappSDK !== "undefined" ||
     typeof win.AlipayJSBridge !== "undefined" ||
     typeof win.my !== "undefined"
@@ -278,22 +284,15 @@ export function parseNetworkType(result) {
 }
 
 export async function fetchNetworkType() {
-  if (typeof window !== "undefined" && window.WindVane) {
-    const result = await call("WVNetwork", "getNetworkType");
-    const parsed = parseNetworkType(result);
-    if (parsed) {
-      networkType.value = parsed;
-      return parsed;
-    }
-  }
+  const win = typeof window !== "undefined" ? window : globalThis;
+  if (!win) return "";
 
   if (
-    typeof window !== "undefined" &&
-    window.MiniappSDK &&
-    typeof window.MiniappSDK.getNetworkInfo === "function"
+    win.MiniappSDK &&
+    typeof win.MiniappSDK.getNetworkInfo === "function"
   ) {
     try {
-      const info = await window.MiniappSDK.getNetworkInfo();
+      const info = await win.MiniappSDK.getNetworkInfo();
       const parsed = parseNetworkType(info);
       if (parsed) {
         networkType.value = parsed;
@@ -302,6 +301,42 @@ export async function fetchNetworkType() {
     } catch (e) {
       console.warn("[MiniappSDK] getNetworkInfo failed", e);
     }
+  }
+
+  if (typeof win !== "undefined" && win.WindVane) {
+    const result = await call("WVNetwork", "getNetworkType");
+    const parsed = parseNetworkType(result);
+    if (parsed) {
+      networkType.value = parsed;
+      return parsed;
+    }
+  }
+
+  if (typeof win !== "undefined" && win.my && typeof win.my.getNetworkType === "function") {
+    try {
+      const myResult = await new Promise((resolve) => {
+        win.my.getNetworkType({
+          success: (res) => resolve(parseNetworkType(res)),
+          fail: () => resolve("")
+        });
+      });
+      if (myResult) {
+        networkType.value = myResult;
+        return myResult;
+      }
+    } catch (e) {}
+  }
+
+  if (typeof win !== "undefined" && win.AlipayJSBridge && typeof win.AlipayJSBridge.call === "function") {
+    try {
+      const bridgeResult = await new Promise((resolve) => {
+        win.AlipayJSBridge.call("getNetworkType", {}, (res) => resolve(parseNetworkType(res)));
+      });
+      if (bridgeResult) {
+        networkType.value = bridgeResult;
+        return bridgeResult;
+      }
+    } catch (e) {}
   }
 
   return "";

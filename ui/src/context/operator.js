@@ -28,6 +28,30 @@ export const OPERATOR = {
   ETL: "ETL"
 };
 
+/**
+ * Known CIDR IP ranges for telecommunications providers in Laos.
+ * Sourced from the reference speedtestt infrastructure.
+ */
+export const IP_RANGES = {
+  UNITEL: ["183.182.96.0/19", "103.1.28.0/22", "154.222.4.0/22"],
+  LAOTEL: [
+    "103.43.76.0/22",
+    "115.84.103.0/24",
+    "115.84.64.0/18",
+    "202.137.128.0/19",
+    "202.144.187.0/24"
+  ],
+  ETL: [
+    "101.78.8.0/21",
+    "103.13.88.0/22",
+    "114.129.24.0/21",
+    "202.62.96.0/20",
+    "43.252.244.0/22"
+  ],
+  BEST_TELECOM: ["141.164.101.0/24", "141.164.102.0/24"],
+  VIETTEL: ["171.241.8.0/21", "171.241.0.0/16", "171.224.0.0/11"]
+};
+
 /*
   AS name (lower-cased, whitespace-collapsed) -> carrier. Extend this table when
   a new AS name shows up in the data, never the matching logic below.
@@ -41,7 +65,118 @@ const AS_NAME_TO_OPERATOR = {
 };
 
 /**
- * Normalise the ISP string into one of the three report carriers.
+ * Convert an IPv4 string into a 32-bit unsigned integer.
+ * Returns null if the string is not a valid IPv4 address.
+ *
+ * @param {string} ip
+ * @returns {number|null}
+ */
+export function ipToInt(ip) {
+  if (typeof ip !== "string") return null;
+  const parts = ip.trim().split(".");
+  if (parts.length !== 4) return null;
+  let res = 0;
+  for (let i = 0; i < 4; i++) {
+    const raw = parts[i];
+    if (!/^\d+$/.test(raw)) return null;
+    const octet = Number(raw);
+    if (!Number.isInteger(octet) || octet < 0 || octet > 255) return null;
+    res = (res << 8) + octet;
+  }
+  return res >>> 0;
+}
+
+/**
+ * Check if an IPv4 address is within a CIDR block (e.g. "183.182.96.0/19").
+ *
+ * @param {string} ip
+ * @param {string} cidr
+ * @returns {boolean}
+ */
+export function ipMatchesCidr(ip, cidr) {
+  if (typeof ip !== "string" || typeof cidr !== "string") return false;
+  const ipInt = ipToInt(ip);
+  if (ipInt === null) return false;
+
+  const [rangeIp, prefixStr] = cidr.trim().split("/");
+  const rangeInt = ipToInt(rangeIp);
+  if (rangeInt === null) return false;
+
+  const prefix = prefixStr !== undefined ? parseInt(prefixStr, 10) : 32;
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) return false;
+
+  const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+  return (ipInt & mask) === (rangeInt & mask);
+}
+
+/**
+ * Check if an IPv4 address is within any of the provided CIDR blocks.
+ *
+ * @param {string} ip
+ * @param {string[]} ranges
+ * @returns {boolean}
+ */
+export function isIpInRanges(ip, ranges) {
+  if (typeof ip !== "string" || !Array.isArray(ranges)) return false;
+  return ranges.some((cidr) => ipMatchesCidr(ip, cidr));
+}
+
+/**
+ * Detect the ISP / Operator directly from a client IP address.
+ *
+ * @param {string} ip
+ * @returns {string|null} Operator name or null if not in known IP ranges
+ */
+export function getOperatorFromIp(ip) {
+  if (typeof ip !== "string" || !ip.trim()) return null;
+  if (isIpInRanges(ip, IP_RANGES.UNITEL)) return OPERATOR.UNITEL;
+  if (isIpInRanges(ip, IP_RANGES.LAOTEL)) return OPERATOR.LAOTEL;
+  if (isIpInRanges(ip, IP_RANGES.ETL)) return OPERATOR.ETL;
+  if (isIpInRanges(ip, IP_RANGES.BEST_TELECOM)) return "Best Telecom";
+  if (isIpInRanges(ip, IP_RANGES.VIETTEL)) return "Viettel";
+  return null;
+}
+
+/**
+ * Parse raw IP response (which can be a JSON string like {"processedString":"172.19.0.1"}
+ * or an object or a plain string "ip - isp") into clean { ip, isp } values.
+ *
+ * @param {string|object} raw
+ * @returns {{ ip: string, isp: string }}
+ */
+export function parseIpResponse(raw) {
+  if (!raw) return { ip: "", isp: "" };
+  let processed = "";
+  if (typeof raw === "object") {
+    processed = raw.processedString || raw.ip || "";
+  } else if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        processed = parsed.processedString || parsed.ip || trimmed;
+      } catch (e) {
+        processed = trimmed;
+      }
+    } else {
+      processed = trimmed;
+    }
+  }
+
+  const [ipPart, ...rest] = String(processed).split(" - ");
+  const ip = ipPart ? ipPart.trim() : "";
+  const rawIsp = rest.join(" - ").trim();
+  const matchedIsp = getOperatorFromIp(ip);
+  const isp = matchedIsp || (rawIsp && !rawIsp.startsWith("{") ? rawIsp : "");
+
+  return { ip, isp };
+}
+
+/**
+ * Normalise the ISP/IP into one of the report carriers.
+ *
+ * Checks the client IP against known CIDR blocks first. If that does not
+ * match (or no IP is provided), falls back to matching the AS name string.
  *
  * getIP.php hands the AS name over with a tail attached: ", <country>" from the
  * offline-database path (ip.' - '.as_name.', '.country_name) and " (<distance>)"
@@ -50,9 +185,14 @@ const AS_NAME_TO_OPERATOR = {
  * whitespace-insensitively against the table.
  *
  * @param {string} isp the ISP/AS-name string, e.g. "Unitel Mobile LA, Laos"
+ * @param {string} [ip] optional client IP address, e.g. "183.182.100.201"
  * @returns {null|string} an OPERATOR value, or null for an unknown or absent name
  */
-export function normaliseOperator(isp) {
+export function normaliseOperator(isp, ip) {
+  if (typeof ip === "string" && ip.trim()) {
+    const fromIp = getOperatorFromIp(ip);
+    if (fromIp) return fromIp;
+  }
   if (typeof isp !== "string") return null;
   const name = isp
     .split(",")[0]
