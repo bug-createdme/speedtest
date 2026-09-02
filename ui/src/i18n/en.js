@@ -26,6 +26,9 @@ export default {
   "action.clearHistory": "Clear history",
   "action.change": "Change",
   "action.logout": "Log out",
+  "action.close": "Close",
+  "action.copyId": "Copy ID",
+  "action.export": "Export",
 
   "stage.ping": "Ping",
   "stage.download": "Download",
@@ -91,6 +94,13 @@ export default {
   "history.yesterday": "Yesterday",
   "history.confirmClear": "Delete all saved results?",
   "history.slow": "slow",
+  "history.details": "Test details",
+  "history.filterAll": "All",
+  "history.count": "{count} results",
+  "history.dayCount": "{count} tests",
+  "history.loadMore": "Show more ({count} remaining)",
+  "history.showAll": "Show all",
+  "history.collapse": "Collapse",
 
   "logout.confirm":
     "Log out? The results saved on this device will be deleted.",
@@ -104,6 +114,7 @@ export default {
   "sync.storedLocally": "{count} saved on this device",
   "sync.pending": "{count} waiting to upload",
   "sync.allSent": "All results uploaded",
+  "sync.sent": "Uploaded",
   "share.copied": "Copied to the clipboard",
   "share.blocked": "This app could not hand the file over. Sync it instead, or open the app in a browser.",
   "sync.notSent": "Not uploaded",

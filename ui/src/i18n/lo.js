@@ -45,6 +45,9 @@ export default {
   "action.clearHistory": "ລຶບປະຫວັດ",
   "action.change": "ປ່ຽນ",
   "action.logout": "ອອກຈາກລະບົບ",
+  "action.close": "ປິດ",
+  "action.copyId": "ຄັດລອກລະຫັດ",
+  "action.export": "ສົ່ງອອກ",
 
   "stage.ping": "ຄວາມໜ່ວງ",
   "stage.download": "ດາວໂຫຼດ",
@@ -110,6 +113,13 @@ export default {
   "history.yesterday": "ມື້ວານ",
   "history.confirmClear": "ລຶບຜົນທີ່ບັນທຶກໄວ້ທັງໝົດບໍ່?",
   "history.slow": "ຊ້າ",
+  "history.details": "ລາຍລະອຽດການວັດ",
+  "history.filterAll": "ທັງໝົດ",
+  "history.count": "{count} ຜົນ",
+  "history.dayCount": "{count} ຄັ້ງ",
+  "history.loadMore": "ເບິ່ງເພີ່ມເຕີມ (ຍັງເຫຼືອ {count})",
+  "history.showAll": "ສະແດງທັງໝົດ",
+  "history.collapse": "ຫຍໍ້ເຂົ້າ",
 
   "logout.confirm":
     "ອອກຈາກລະບົບບໍ່? ຜົນທີ່ບັນທຶກໄວ້ໃນເຄື່ອງນີ້ຈະຖືກລຶບ.",
@@ -123,6 +133,7 @@ export default {
   "sync.storedLocally": "ບັນທຶກ {count} ຜົນລົງເຄື່ອງແລ້ວ",
   "sync.pending": "{count} ຜົນກຳລັງລໍຖ້າສົ່ງຂຶ້ນ",
   "sync.allSent": "ສົ່ງຜົນທັງໝົດຂຶ້ນແລ້ວ",
+  "sync.sent": "ສົ່ງແລ້ວ",
   "share.copied": "ຄັດລອກແລ້ວ",
   "share.blocked": "ບໍ່ສາມາດແບ່ງປັນໄຟລ໌ໄດ້",
   "sync.notSent": "ຍັງບໍ່ໄດ້ສົ່ງ",

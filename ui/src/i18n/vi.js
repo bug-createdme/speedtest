@@ -20,6 +20,9 @@ export default {
   "action.clearHistory": "Xoá lịch sử",
   "action.change": "Đổi",
   "action.logout": "Đăng xuất",
+  "action.close": "Đóng",
+  "action.copyId": "Sao chép mã",
+  "action.export": "Xuất",
 
   "stage.ping": "Độ trễ",
   "stage.download": "Tải xuống",
@@ -85,6 +88,13 @@ export default {
   "history.yesterday": "Hôm qua",
   "history.confirmClear": "Xoá toàn bộ kết quả đã lưu?",
   "history.slow": "chậm",
+  "history.details": "Chi tiết lần đo",
+  "history.filterAll": "Tất cả",
+  "history.count": "{count} kết quả",
+  "history.dayCount": "{count} lần đo",
+  "history.loadMore": "Xem thêm (còn {count} kết quả)",
+  "history.showAll": "Hiện tất cả",
+  "history.collapse": "Thu gọn",
 
   "logout.confirm":
     "Đăng xuất? Các kết quả đã lưu trên thiết bị này sẽ bị xoá.",
@@ -98,6 +108,7 @@ export default {
   "sync.storedLocally": "Đã lưu {count} kết quả trên máy",
   "sync.pending": "{count} kết quả đang chờ gửi lên",
   "sync.allSent": "Đã gửi lên toàn bộ kết quả",
+  "sync.sent": "Đã gửi",
   "share.copied": "Đã sao chép vào bộ nhớ tạm",
   "share.blocked": "Ứng dụng không chuyển được tệp ra ngoài. Hãy đồng bộ, hoặc mở bằng trình duyệt.",
   "sync.notSent": "Chưa gửi",
