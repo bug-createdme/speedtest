@@ -6,7 +6,8 @@ import {
   cellGeneration,
   netType,
   parseUserAgent,
-  recordsToCsv
+  recordsToCsv,
+  recordsToTsv
 } from "../../ui/src/measurement/record.js";
 import { summarise } from "../../ui/src/measurement/kpi.js";
 
@@ -102,6 +103,8 @@ describe("absent is not zero", () => {
       "LOCATION_ACCURACY",
       "LOCATION_AAL1",
       "LOCATION_AAL2",
+      "LOCATION_LOCALITY",
+      "LOCATION_FULL_ADDRESS",
       "MOBILE_CELL_ID",
       "MOBILE_RSRP_START",
       "MOBILE_RSRP_END",
@@ -450,16 +453,37 @@ describe("location fields", () => {
     expect(r.LOCATION_COUNTRY).toBeNull();
     expect(r.LOCATION_AAL1).toBeNull();
     expect(r.LOCATION_AAL2).toBeNull();
+    expect(r.LOCATION_LOCALITY).toBeNull();
+    expect(r.LOCATION_FULL_ADDRESS).toBeNull();
   });
 
-  /* A street address is not derivable from boundary polygons, and nothing in
-     the report is grouped by one. */
-  it("leaves the full address null", () => {
+  /* A street address is not derivable from boundary polygons alone. */
+  it("leaves the full address null when absent", () => {
     const r = buildRecord({
       test: fullRun(),
       location: { lat: 17.9757, lng: 102.6331, aal1: "Vientiane Capital" }
     });
     expect(r.LOCATION_FULL_ADDRESS).toBeNull();
+  });
+
+  it("records full address and locality when provided", () => {
+    const r = buildRecord({
+      test: fullRun(),
+      location: {
+        lat: 17.9757,
+        lng: 102.6331,
+        aal1: "Oudomxay",
+        aal2: "Houne District",
+        locality: "Nathong",
+        fullAddress: "2W, Nathong, Houne District, Oudomxay, Laos",
+        country: "Laos"
+      }
+    });
+    expect(r.LOCATION_AAL1).toBe("Oudomxay");
+    expect(r.LOCATION_AAL2).toBe("Houne District");
+    expect(r.LOCATION_LOCALITY).toBe("Nathong");
+    expect(r.LOCATION_FULL_ADDRESS).toBe("2W, Nathong, Houne District, Oudomxay, Laos");
+    expect(r.LOCATION_COUNTRY).toBe("Laos");
   });
 });
 
@@ -524,3 +548,23 @@ describe("csv export", () => {
     expect(recordsToCsv([]).split("\n")).toHaveLength(1);
   });
 });
+
+describe("tsv export", () => {
+  it("writes tab-separated fields in declared order", () => {
+    const tsv = recordsToTsv([buildRecord({ test: fullRun() })]);
+    const header = tsv.split("\n")[0].split("\t");
+    expect(header).toEqual(RECORD_FIELDS);
+  });
+
+  it("replaces tabs and newlines inside field values with spaces", () => {
+    const record = buildRecord({
+      test: fullRun(),
+      server: { name: "Vientiane\tnorth\r\nsub" }
+    });
+    const tsv = recordsToTsv([record]);
+    const lines = tsv.split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain("Vientiane north  sub");
+  });
+});
+

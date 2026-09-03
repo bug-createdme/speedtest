@@ -1,6 +1,6 @@
 import { ref } from "vue";
 
-import { buildRecord, recordsToCsv } from "../measurement/record.js";
+import { buildRecord, recordsToCsv, recordsToTsv } from "../measurement/record.js";
 import { recordsToXlsx } from "../report/xlsx.js";
 import {
   STATUS,
@@ -120,3 +120,14 @@ export function toCsv() {
 export function toXlsx() {
   return recordsToXlsx(history.value.map((row) => row.record));
 }
+
+/**
+ * The same records formatted as Tab-Separated Values (TSV) for pasting
+ * directly into Excel, Google Sheets, or WPS Office.
+ *
+ * @returns {string}
+ */
+export function toTsv() {
+  return recordsToTsv(history.value.map((row) => row.record));
+}
+

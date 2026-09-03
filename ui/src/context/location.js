@@ -49,6 +49,8 @@ function inRange(lat, lng) {
 export function parseUserLocation(result) {
   if (!result || typeof result !== "object") return null;
 
+  console.log("[location] raw result:", JSON.stringify(result));
+
   /* Unwrap the envelope some platforms use; data may be an object or a string. */
   let payload = result.data !== undefined ? result.data : result;
   if (typeof payload === "string") {
@@ -60,15 +62,44 @@ export function parseUserLocation(result) {
   }
   if (!payload || typeof payload !== "object") return null;
 
-  const lat = Number(payload.latitude);
-  const lng = Number(payload.longitude);
+  const lat = Number(
+    payload.latitude !== undefined
+      ? payload.latitude
+      : payload.lat !== undefined
+      ? payload.lat
+      : payload.coords && payload.coords.latitude
+  );
+  const lng = Number(
+    payload.longitude !== undefined
+      ? payload.longitude
+      : payload.lng !== undefined
+      ? payload.lng
+      : payload.long !== undefined
+      ? payload.long
+      : payload.coords && payload.coords.longitude
+  );
+
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (!inRange(lat, lng)) return null;
   /* (0, 0) is the null-island no-fix sentinel a failed locate returns, not a
      place anyone in Laos is standing. Treat it as no fix. */
   if (lat === 0 && lng === 0) return null;
 
-  return { lat, lng };
+  const accuracy = Number(payload.accuracy || (payload.coords && payload.coords.accuracy));
+  const addressObj = payload.address && typeof payload.address === "object" ? payload.address : null;
+  const addressStr = typeof payload.address === "string" ? payload.address : null;
+  const city = payload.city || (addressObj && addressObj.city) || payload.province || (addressObj && addressObj.province) || null;
+  const district = payload.district || (addressObj && addressObj.district) || null;
+  const country = payload.country || (addressObj && addressObj.country) || null;
+  const fullAddress = addressStr || (addressObj && (addressObj.address || addressObj.street)) || null;
+
+  const res = { lat, lng };
+  if (Number.isFinite(accuracy)) res.accuracy = accuracy;
+  if (city) res.city = city;
+  if (district) res.district = district;
+  if (country) res.country = country;
+  if (fullAddress) res.fullAddress = fullAddress;
+  return res;
 }
 
 function geolocate(timeoutMs) {
@@ -113,25 +144,104 @@ function geolocate(timeoutMs) {
   });
 }
 
-/*
-  Attach the administrative area to a fix.
+/**
+ * Reverse geocodes coordinates (lat, lng) to province, district, locality, and full address.
+ *
+ * @param {number} lat
+ * @param {number} lng
+ * @returns {Promise<{aal1: string|null, aal2: string|null, locality: string|null, fullAddress: string|null, country: string|null}|null>}
+ */
+export async function reverseGeocode(lat, lng) {
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
 
-  Done here rather than in buildRecord so the record layer stays a mapper: it
-  writes down what it is handed, and deciding what a coordinate means belongs to
-  the context layer. With no boundary table loaded, locateArea returns null and
-  the province and district stay null - see context/geo.js for why the table
-  ships empty.
+  // 1. Try OpenStreetMap Nominatim for rich address structure (street, village, district, province)
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2500);
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=en`,
+      {
+        signal: ctrl.signal,
+        headers: { "User-Agent": "UnitelSpeedtest/6.2.1" }
+      }
+    );
+    clearTimeout(timer);
+    if (res.ok) {
+      const d = await res.json();
+      const addr = d.address || {};
+      const aal1 = addr.state || addr.province || addr.city || null;
+      const aal2 = addr.county || addr.district || null;
+      const locality = addr.village || addr.suburb || addr.neighbourhood || addr.town || addr.city_district || null;
+      const country = addr.country || "Laos";
+      const fullAddress = d.display_name || [locality, aal2, aal1, country].filter(Boolean).join(", ");
+      return { aal1, aal2, locality, fullAddress, country };
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  // 2. Try BigDataCloud (fast, CORS-friendly client-side fallback)
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2500);
+    const res = await fetch(
+      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`,
+      { signal: ctrl.signal }
+    );
+    clearTimeout(timer);
+    if (res.ok) {
+      const d = await res.json();
+      const admin = (d.localityInfo && d.localityInfo.administrative) || [];
+      const admin4 = admin.find((a) => a.adminLevel === 4);
+      const admin6 = admin.find((a) => a.adminLevel === 6);
+      const aal1 = (admin4 && admin4.name) || d.principalSubdivision || d.city || null;
+      const aal2 = (admin6 && admin6.name) || (d.city !== aal1 ? d.city : null) || null;
+      const locality = d.locality || (admin[admin.length - 1] && admin[admin.length - 1].name) || null;
+      const country = d.countryName === "Lao People's Democratic Republic" ? "Laos" : (d.countryName || "Laos");
+      const parts = [locality, aal2, aal1, country].filter((v, idx, arr) => v && arr.indexOf(v) === idx);
+      const fullAddress = parts.join(", ");
+      return { aal1, aal2, locality, fullAddress, country };
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  return null;
+}
+
+/*
+  Attach the administrative area and full address to a fix.
 */
-function withArea(fix) {
+export async function withArea(fix) {
   if (!fix) return null;
   const area = locateArea(fix.lat, fix.lng);
+
+  let geo = null;
+  if (!fix.fullAddress || !fix.locality || !fix.aal1) {
+    try {
+      geo = await reverseGeocode(fix.lat, fix.lng);
+    } catch (e) {}
+  }
+
+  const aal1 = (area && area.aal1) || (geo && geo.aal1) || fix.city || null;
+  const aal2 = (area && area.aal2) || (geo && geo.aal2) || fix.district || null;
+  const locality = (geo && geo.locality) || fix.locality || fix.city || null;
+  const country = (area && area.country) || (geo && geo.country) || fix.country || "Laos";
+  const fullAddress =
+    (geo && geo.fullAddress) ||
+    fix.fullAddress ||
+    [locality, aal2, aal1, country].filter(Boolean).join(", ") ||
+    null;
+
   return {
     lat: fix.lat,
     lng: fix.lng,
     accuracy: fix.accuracy === undefined ? null : fix.accuracy,
-    aal1: area ? area.aal1 : null,
-    aal2: area ? area.aal2 : null,
-    country: area ? area.country : null
+    aal1,
+    aal2,
+    locality,
+    fullAddress,
+    country
   };
 }
 
@@ -140,22 +250,58 @@ function withArea(fix) {
  *
  * Resolves - never rejects. Accuracy is a number only when it came from
  * navigator.geolocation; the bridge does not report one, so a bridge fix
- * carries accuracy: null rather than a fabricated zero. Province and district
- * are resolved from the loaded boundary table, and are null without one.
+ * carries accuracy: null rather than a fabricated zero.
  *
  * @param {number} [timeoutMs] give up after this long
  * @returns {Promise<null|{lat: number, lng: number, accuracy: number|null,
- *          aal1: string|null, aal2: string|null, country: string|null}>}
+ *          aal1: string|null, aal2: string|null, locality: string|null, country: string|null, fullAddress: string|null}>}
  */
 export async function fetchLocation(timeoutMs) {
-  const t = timeoutMs || 8000;
+  const t = timeoutMs || 10000;
   if (isSuperApp()) {
-    const result = await call("CustomServiceJs", "getUserLocation", {}, t);
-    const parsed = parseUserLocation(result);
-    if (parsed) return withArea({ lat: parsed.lat, lng: parsed.lng, accuracy: null });
-    /* The bridge did not answer usably. Fall through and try the web API, which
-       inside the super-app WebView is usually blocked and resolves null - no
-       worse than the null we already have. */
+    // 1. Primary Ali SuperApp / WindVane location API (WVLocation.getLocation)
+    const wvResult = await call(
+      "WVLocation",
+      "getLocation",
+      { enableHighAccuracy: true, address: true },
+      t
+    );
+    const parsedWv = parseUserLocation(wvResult);
+    if (parsedWv) {
+      console.log("[location] resolved via WVLocation.getLocation:", parsedWv);
+      return await withArea(parsedWv);
+    }
+
+    // 2. Fallback for custom Unitel SuperApp bridges
+    const csResult = await call("CustomServiceJs", "getUserLocation", {}, Math.min(t, 4000));
+    const parsedCs = parseUserLocation(csResult);
+    if (parsedCs) {
+      console.log("[location] resolved via CustomServiceJs.getUserLocation:", parsedCs);
+      return await withArea(parsedCs);
+    }
+
+    // 3. Alipay / mPaaS mini program API: my.getLocation
+    const win = typeof window !== "undefined" ? window : globalThis;
+    if (win && win.my && typeof win.my.getLocation === "function") {
+      try {
+        const myResult = await new Promise((resolve) => {
+          win.my.getLocation({
+            type: 2,
+            success: (res) => resolve(parseUserLocation(res)),
+            fail: () => resolve(null)
+          });
+        });
+        if (myResult) {
+          console.log("[location] resolved via my.getLocation:", myResult);
+          return await withArea(myResult);
+        }
+      } catch (e) {}
+    }
   }
-  return withArea(await geolocate(t));
+
+  const webLoc = await geolocate(t);
+  if (webLoc) {
+    console.log("[location] resolved via navigator.geolocation:", webLoc);
+  }
+  return await withArea(webLoc);
 }

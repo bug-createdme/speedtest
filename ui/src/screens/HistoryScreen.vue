@@ -2,10 +2,12 @@
 import { computed, ref } from "vue";
 import { clearHistory, history, syncState, toCsv, toXlsx } from "../state/history.js";
 import { XLSX_MIME } from "../report/xlsx.js";
-import { shareFile } from "../report/share.js";
+import { saveFile } from "../report/share.js";
 import { goBack } from "../state/ui.js";
 import { useI18n } from "../i18n/index.js";
 import HistoryDetailModal from "../components/HistoryDetailModal.vue";
+import ExportModal from "../components/ExportModal.vue";
+
 
 const { t, locale } = useI18n();
 
@@ -118,18 +120,64 @@ const groupedByDate = computed(() => {
   return groups;
 });
 
-async function save(blob, filename, mime) {
-  const how = await shareFile(blob, filename, mime);
-  exportFailed.value = how === "none";
+const showExportModal = ref(false);
+const exportType = ref("xlsx");
+const exportSuccessMsg = ref("");
+
+function openExport(type) {
+  exportType.value = type || "xlsx";
+  showExportModal.value = true;
+}
+
+function closeExport() {
+  showExportModal.value = false;
+}
+
+function showSavedToast(filename) {
+  exportSuccessMsg.value = t("export.savedSuccess", { filename });
+  setTimeout(() => {
+    exportSuccessMsg.value = "";
+  }, 4000);
+}
+
+/*
+  One press on the toolbar tries the direct route and opens the sheet when
+  there is not one. The route choice itself lives in report/share.js: it used
+  to be spelled out again here, with the base64 .xlsx mistake in it, and two
+  copies of a rule this subtle is one copy too many.
+*/
+async function exportAs(type) {
+  const csv = type === "csv";
+  const text = csv ? "\uFEFF" + toCsv() : null;
+  const res = await saveFile({
+    blob: csv
+      ? new Blob([text], { type: "text/csv;charset=utf-8" })
+      : new Blob([toXlsx()], { type: XLSX_MIME }),
+    filename: csv ? "speedtest-history.csv" : "speedtest-history.xlsx",
+    mime: csv ? "text/csv" : XLSX_MIME,
+    bridgeText: text
+  });
+
+  if (res.ok) {
+    if (res.route === "bridge") showSavedToast(csv ? "speedtest-history.csv" : "speedtest-history.xlsx");
+    return;
+  }
+
+  /* Nothing carried the file, so hand the user the sheet, where copy, share
+     and the diagnostic are. */
+  console.warn("[history] export failed", res);
+  openExport(type);
 }
 
 function downloadCsv() {
-  save(new Blob([toCsv()], { type: "text/csv;charset=utf-8" }), "speedtest-history.csv", "text/csv");
+  return exportAs("csv");
 }
 
 function downloadXlsx() {
-  save(new Blob([toXlsx()], { type: XLSX_MIME }), "speedtest-history.xlsx", XLSX_MIME);
+  return exportAs("xlsx");
 }
+
+
 
 const keptAfterClear = ref(0);
 async function doClear() {
@@ -377,6 +425,16 @@ function fmtSpeed(value) {
       </div>
     </div>
 
+    <!-- Toast notification for export success -->
+    <transition name="fade">
+      <div v-if="exportSuccessMsg" class="export-toast-success" role="status">
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path d="M3.5 8.5l3 3 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>{{ exportSuccessMsg }}</span>
+      </div>
+    </transition>
+
     <!-- Bottom Actions / Back -->
     <div class="actions">
       <p v-if="exportFailed" class="export-failed">{{ t("share.blocked") }}</p>
@@ -390,6 +448,13 @@ function fmtSpeed(value) {
       v-if="selectedEntry"
       :entry="selectedEntry"
       @close="closeDetails"
+    />
+
+    <!-- Export Modal -->
+    <ExportModal
+      v-if="showExportModal"
+      :initial-type="exportType"
+      @close="closeExport"
     />
   </section>
 </template>
@@ -766,6 +831,26 @@ function fmtSpeed(value) {
   display: flex;
   gap: var(--sp-2);
   justify-content: flex-end;
+}
+
+.export-toast-success {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 12px 16px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  border-radius: var(--radius-md);
+  color: #34d399;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  margin: var(--sp-2) 0;
+}
+
+.export-toast-success svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 </style>
 

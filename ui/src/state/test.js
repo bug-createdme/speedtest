@@ -1,10 +1,10 @@
-import { reactive } from "vue";
+import { reactive, watch } from "vue";
 
 import { locale } from "../i18n/index.js";
 import { connectionType } from "./ui.js";
 import { compareNetwork, networkSnapshot, watchNetwork } from "../context/network.js";
 import { fetchLocation } from "../context/location.js";
-import { getOperatorFromIp, parseIpResponse } from "../context/operator.js";
+import { getOperatorFromIp, getOperatorFromIsdn, parseIpResponse } from "../context/operator.js";
 import { runStreamingTest } from "../measurement/streaming.js";
 import { initBridge, isdn } from "../bridge/windvane.js";
 
@@ -221,6 +221,7 @@ let engineSettings = {};
 const UI_SETTING_KEYS = [
   "windvane_sdk_url",
   "record_endpoint",
+  "export_endpoint",
   "area_table_url",
   "video_url",
   "video_play_seconds",
@@ -229,6 +230,13 @@ const UI_SETTING_KEYS = [
 export const uiSettings = {
   windvane_sdk_url: "",
   record_endpoint: "",
+  /*
+    backend/export.php, which turns an export into a download URL. Empty means
+    the route is off and Android keeps having no way to hand over a file - see
+    report/share.js. Empty by default because a deployment that has not stood
+    this endpoint up should not be POSTing subscriber data at a guess.
+  */
+  export_endpoint: "",
   /* Boundary polygons for province/district. Empty means coordinates are stored
      without an administrative area rather than with a guessed one - see
      context/geo.js. */
@@ -405,7 +413,7 @@ export async function fetchClientIp(server) {
     if (!res.ok) return;
     const text = await res.text();
     if (text) {
-      const parsed = parseIpResponse(text);
+      const parsed = parseIpResponse(text, isdn.value);
       if (parsed.ip) {
         test.ip = parsed.ip;
         test.isp = parsed.isp;
@@ -415,6 +423,19 @@ export async function fetchClientIp(server) {
     // ignore fetch error on early probe
   }
 }
+
+/*
+  Whenever the super-app bridge resolves the subscriber ISDN, use it to
+  identify the carrier if IP-based detection yielded a private or unknown ISP.
+*/
+watch(isdn, (newIsdn) => {
+  if (newIsdn) {
+    const op = getOperatorFromIsdn(newIsdn);
+    if (op && (!test.isp || test.isp.toLowerCase().includes("private"))) {
+      test.isp = op;
+    }
+  }
+});
 
 /*
   Server selection. Runs in the background and never blocks the Start button -
@@ -503,6 +524,11 @@ export async function initEngine() {
     nothing the user can do should wait on it - see the note on initBridge.
   */
   initBridge(uiSettings.windvane_sdk_url);
+  fetchLocation()
+    .then((loc) => {
+      if (loc) test.location = loc;
+    })
+    .catch(() => {});
   beginServerSelection();
 }
 
@@ -913,7 +939,7 @@ export function startTest() {
     if (data.testId) test.testId = data.testId;
 
     if (data.clientIp) {
-      const parsed = parseIpResponse(data.clientIp);
+      const parsed = parseIpResponse(data.clientIp, isdn.value);
       if (parsed.ip) {
         test.ip = parsed.ip;
         test.isp = parsed.isp;

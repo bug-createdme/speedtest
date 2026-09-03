@@ -138,13 +138,54 @@ export function getOperatorFromIp(ip) {
 }
 
 /**
+ * Detect operator from Laos ISDN / subscriber phone number prefix.
+ *
+ * Unitel: 209xxxxxxx, 208xxxxxxx, 206xxxxxxx, 0209..., 856209...
+ * LaoTel: 205xxxxxxx, 0205..., 856205...
+ * ETL: 202xxxxxxx, 0202..., 856202...
+ * Best Telecom / Tplus: 207xxxxxxx, 203xxxxxxx, 0207..., 856207...
+ *
+ * @param {string} isdn
+ * @returns {string|null}
+ */
+export function getOperatorFromIsdn(isdn) {
+  if (!isdn || typeof isdn !== "string") return null;
+  const clean = isdn.replace(/[^0-9]/g, "");
+  if (!clean) return null;
+
+  let num = clean;
+  if (num.startsWith("856")) num = num.slice(3);
+  if (num.startsWith("0")) num = num.slice(1);
+
+  // Unitel prefixes: 209, 208, 206, 9, 8, 6 (7 or 8 digits after 20)
+  if (/^(20)?(9|8|6)\d{6,8}$/.test(num)) {
+    return OPERATOR.UNITEL;
+  }
+  // LaoTel prefixes: 205, 5
+  if (/^(20)?5\d{6,8}$/.test(num)) {
+    return OPERATOR.LAOTEL;
+  }
+  // ETL prefixes: 202, 2
+  if (/^(20)?2\d{6,8}$/.test(num)) {
+    return OPERATOR.ETL;
+  }
+  // Best Telecom / Tplus: 207, 203, 7, 3
+  if (/^(20)?(7|3)\d{6,8}$/.test(num)) {
+    return "Best Telecom";
+  }
+
+  return null;
+}
+
+/**
  * Parse raw IP response (which can be a JSON string like {"processedString":"172.19.0.1"}
  * or an object or a plain string "ip - isp") into clean { ip, isp } values.
  *
  * @param {string|object} raw
+ * @param {string} [isdn] optional subscriber isdn for carrier fallback
  * @returns {{ ip: string, isp: string }}
  */
-export function parseIpResponse(raw) {
+export function parseIpResponse(raw, isdn) {
   if (!raw) return { ip: "", isp: "" };
   let processed = "";
   if (typeof raw === "object") {
@@ -166,8 +207,10 @@ export function parseIpResponse(raw) {
   const [ipPart, ...rest] = String(processed).split(" - ");
   const ip = ipPart ? ipPart.trim() : "";
   const rawIsp = rest.join(" - ").trim();
-  const matchedIsp = getOperatorFromIp(ip);
-  const isp = matchedIsp || (rawIsp && !rawIsp.startsWith("{") ? rawIsp : "");
+  const fromIp = getOperatorFromIp(ip);
+  const fromIsdn = isdn ? getOperatorFromIsdn(isdn) : null;
+  const isPrivateText = rawIsp && rawIsp.toLowerCase().includes("private");
+  const isp = fromIp || fromIsdn || (!isPrivateText && rawIsp && !rawIsp.startsWith("{") ? rawIsp : "");
 
   return { ip, isp };
 }
@@ -176,7 +219,8 @@ export function parseIpResponse(raw) {
  * Normalise the ISP/IP into one of the report carriers.
  *
  * Checks the client IP against known CIDR blocks first. If that does not
- * match (or no IP is provided), falls back to matching the AS name string.
+ * match (or no IP is provided), falls back to subscriber ISDN prefix, then
+ * to matching the AS name string.
  *
  * getIP.php hands the AS name over with a tail attached: ", <country>" from the
  * offline-database path (ip.' - '.as_name.', '.country_name) and " (<distance>)"
@@ -186,12 +230,17 @@ export function parseIpResponse(raw) {
  *
  * @param {string} isp the ISP/AS-name string, e.g. "Unitel Mobile LA, Laos"
  * @param {string} [ip] optional client IP address, e.g. "183.182.100.201"
+ * @param {string} [isdn] optional subscriber phone number, e.g. "2095868688"
  * @returns {null|string} an OPERATOR value, or null for an unknown or absent name
  */
-export function normaliseOperator(isp, ip) {
+export function normaliseOperator(isp, ip, isdn) {
   if (typeof ip === "string" && ip.trim()) {
     const fromIp = getOperatorFromIp(ip);
     if (fromIp) return fromIp;
+  }
+  if (typeof isdn === "string" && isdn.trim()) {
+    const fromIsdn = getOperatorFromIsdn(isdn);
+    if (fromIsdn) return fromIsdn;
   }
   if (typeof isp !== "string") return null;
   const name = isp

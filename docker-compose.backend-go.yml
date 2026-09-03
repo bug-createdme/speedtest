@@ -62,12 +62,78 @@ services:
       # anyone who asked. That was wrong.
       SPEEDTEST_STATISTICS_PASSWORD: ${SPEEDTEST_STATISTICS_PASSWORD:?set a statistics password, e.g. SPEEDTEST_STATISTICS_PASSWORD=... docker compose up}
 
+  # ── file export ───────────────────────────────────────────────────────────
+  #
+  # WHY THERE IS A PHP CONTAINER NEXT TO A GO ONE
+  #
+  # Android has no client-side route for handing over a file: Android WebView
+  # has no Web Share API, the container refuses blob: downloads, and
+  # WVFile.write answers "Please apply for JSAPI authorization". So an export
+  # is uploaded, and the mini-app shares the download URL instead - see
+  # docs/deploy-backend.md section 8.
+  #
+  # That endpoint is backend/export.php and it is NOT in backend-go, on
+  # purpose: backend-go is a submodule of librespeed/speedtest-go, this account
+  # cannot push there, and a gitlink pointing at a local-only commit is one no
+  # clone can fetch. Commit d2f68f4 removed two such patches for exactly that
+  # reason, and architecture.md records the rule. A stock php-fpm image beside
+  # it costs one container and no fork.
+  php-export:
+    image: php:8.3-fpm-alpine
+    # Deliberately NOT published. nginx is the only way in.
+    expose:
+      - "9000"
+    # A fresh named volume is created root-owned, and php-fpm runs its workers
+    # as www-data - so export.php finds /var/exports unwritable and answers
+    # "export storage unavailable" with the variable plainly set and the mount
+    # plainly present. The master process is root, which is what makes this
+    # one line enough; the workers it forks are not.
+    command: >-
+      sh -c "mkdir -p /var/exports
+      && chown www-data:www-data /var/exports
+      && chmod 0750 /var/exports
+      && exec php-fpm"
+    volumes:
+      - ./backend:/var/www/html/backend:ro
+      # NOT a bind mount: the files carry subscriber numbers and are deleted on
+      # a timer, so they belong in Docker's own storage rather than in the
+      # working copy where they would be easy to commit by accident.
+      - speedtest-exports:/var/exports
+      # php-fpm clears the environment before the script runs unless a pool
+      # says otherwise - clear_env=no lives here. Without it every getenv()
+      # below returns false and the defaults apply silently, which for
+      # SPEEDTEST_EXPORT_DIR means writing inside the read-only mount and
+      # failing with "storage unavailable".
+      - ./docker/php-export-fpm.conf:/usr/local/etc/php-fpm.d/zz-export.conf:ro
+    environment:
+      SPEEDTEST_EXPORT_DIR: /var/exports
+      # 30 minutes: long enough to open a share sheet and tap the link, short
+      # enough that subscriber data is not sitting there tomorrow.
+      SPEEDTEST_EXPORT_TTL: ${SPEEDTEST_EXPORT_TTL:-1800}
+      SPEEDTEST_EXPORT_MAX_BYTES: ${SPEEDTEST_EXPORT_MAX_BYTES:-5242880}
+      # SET THIS ON THE DEPLOYED HOST. Not optional there, and the failure is
+      # quiet: the endpoint answers 201 with a link nobody can open.
+      #
+      # Left empty, export.php builds the link from the request it received -
+      # host plus SCRIPT_NAME. That is correct only when the path the phone
+      # used is the path this container saw. It is not here: the test point is
+      # published at https://be-unitel.laoone.la/speedtest/, while every
+      # location in nginx-speedtest-endpoints.conf is anchored at /garbage.php,
+      # /getIP.php and so on with no /speedtest prefix - so something upstream
+      # strips it, and the link would come back missing that segment.
+      #
+      #   SPEEDTEST_EXPORT_BASE_URL=https://be-unitel.laoone.la/speedtest/export.php
+      #
+      # Must match export_endpoint in settings.json.
+      SPEEDTEST_EXPORT_BASE_URL: ${SPEEDTEST_EXPORT_BASE_URL:-}
+
   # ── local verification, plain http ────────────────────────────────────────
   nginx:
     profiles: ["dev"]
     image: nginx:1.27-alpine
     depends_on:
       - backend-go
+      - php-export
     # Host port. nginx listens on 8080 inside the container; only the left-hand
     # side is what a browser or a phone on the LAN connects to, and it has to
     # match the `server` URL in server-list.json.
@@ -75,6 +141,12 @@ services:
       - "8087:8080"
     environment:
       SPEEDTEST_ALLOWED_ORIGIN_REGEX: ${SPEEDTEST_ALLOWED_ORIGIN_REGEX:-.}
+      # Which node serves /export.php for the whole pool. The default sends
+      # the request back to this server's own listener, which is right for a
+      # single node. With several behind a load balancer, set the SAME
+      # address on every one of them - exports live on local disk, and a node
+      # pointed at itself cannot serve a link another node stored.
+      SPEEDTEST_EXPORT_NODE: ${SPEEDTEST_EXPORT_NODE:-127.0.0.1:8080}
     volumes:
       - ./docker/nginx-backend-go.conf:/etc/nginx/templates/10-speedtest.conf.template:ro
       - ./docker/nginx-speedtest-endpoints.conf:/etc/nginx/speedtest-endpoints.conf:ro
@@ -87,6 +159,7 @@ services:
     image: nginx:1.27-alpine
     depends_on:
       - backend-go
+      - php-export
     ports:
       - "80:8080"     # ACME challenge + redirect to https
       - "443:8443"
@@ -99,6 +172,12 @@ services:
       SPEEDTEST_SERVER_NAME: ${SPEEDTEST_SERVER_NAME:-speedtest.example.la}
       # Write the dots as [.] - see the note on the dev service above.
       SPEEDTEST_ALLOWED_ORIGIN_REGEX: ${SPEEDTEST_ALLOWED_ORIGIN_REGEX:-.}
+      # Which node serves /export.php for the whole pool. The default sends
+      # the request back to this server's own listener, which is right for a
+      # single node. With several behind a load balancer, set the SAME
+      # address on every one of them - exports live on local disk, and a node
+      # pointed at itself cannot serve a link another node stored.
+      SPEEDTEST_EXPORT_NODE: ${SPEEDTEST_EXPORT_NODE:-127.0.0.1:8080}
     volumes:
       - ./docker/nginx-backend-go-tls.conf:/etc/nginx/templates/10-speedtest.conf.template:ro
       - ./docker/nginx-speedtest-endpoints.conf:/etc/nginx/speedtest-endpoints.conf:ro
@@ -112,3 +191,7 @@ services:
 
 volumes:
   speedtest-results:
+  # Exports awaiting download. Emptied by export.php's own TTL sweep, not by
+  # anything here - a volume that outlives a restart is the point, so a
+  # redeploy does not break links already in someone's share sheet.
+  speedtest-exports:

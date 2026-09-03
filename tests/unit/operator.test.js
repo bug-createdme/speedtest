@@ -4,6 +4,7 @@ import {
   OPERATOR,
   IP_RANGES,
   getOperatorFromIp,
+  getOperatorFromIsdn,
   ipMatchesCidr,
   ipToInt,
   isIpInRanges,
@@ -172,6 +173,42 @@ describe("parseIpResponse", () => {
     expect(parseIpResponse("")).toEqual({ ip: "", isp: "" });
     expect(parseIpResponse(null)).toEqual({ ip: "", isp: "" });
     expect(parseIpResponse(undefined)).toEqual({ ip: "", isp: "" });
+  });
+
+  it("uses ISDN to detect carrier when IP is private or unmapped", () => {
+    const raw = JSON.stringify({ processedString: "172.19.0.1 - private IPv4 access", rawIspInfo: "" });
+    expect(parseIpResponse(raw, "2095868688")).toEqual({ ip: "172.19.0.1", isp: OPERATOR.UNITEL });
+  });
+});
+
+describe("getOperatorFromIsdn", () => {
+  it("identifies Unitel subscriber numbers (209, 208, 206)", () => {
+    expect(getOperatorFromIsdn("2095868688")).toBe(OPERATOR.UNITEL);
+    expect(getOperatorFromIsdn("02095868688")).toBe(OPERATOR.UNITEL);
+    expect(getOperatorFromIsdn("8562095868688")).toBe(OPERATOR.UNITEL);
+    expect(getOperatorFromIsdn("2081234567")).toBe(OPERATOR.UNITEL);
+    expect(getOperatorFromIsdn("2061234567")).toBe(OPERATOR.UNITEL);
+  });
+
+  it("identifies LaoTel subscriber numbers (205)", () => {
+    expect(getOperatorFromIsdn("2055555555")).toBe(OPERATOR.LAOTEL);
+    expect(getOperatorFromIsdn("02055555555")).toBe(OPERATOR.LAOTEL);
+  });
+
+  it("identifies ETL subscriber numbers (202)", () => {
+    expect(getOperatorFromIsdn("2022222222")).toBe(OPERATOR.ETL);
+    expect(getOperatorFromIsdn("02022222222")).toBe(OPERATOR.ETL);
+  });
+
+  it("identifies Best Telecom subscriber numbers (207, 203)", () => {
+    expect(getOperatorFromIsdn("2077777777")).toBe("Best Telecom");
+    expect(getOperatorFromIsdn("2033333333")).toBe("Best Telecom");
+  });
+
+  it("returns null for invalid or non-matching numbers", () => {
+    expect(getOperatorFromIsdn("")).toBeNull();
+    expect(getOperatorFromIsdn(null)).toBeNull();
+    expect(getOperatorFromIsdn("12345")).toBeNull();
   });
 });
 

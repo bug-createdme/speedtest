@@ -19,7 +19,9 @@ import {
 } from "./state/test.js";
 import { loadHistory, saveResult } from "./state/history.js";
 import { initOutbox } from "./sync/outbox.js";
+import { setExportEndpoint } from "./report/share.js";
 import { loadAreaTable } from "./context/geo.js";
+import { fetchLocation, withArea } from "./context/location.js";
 import { isdn } from "./bridge/windvane.js";
 import {
   SCREEN,
@@ -56,6 +58,8 @@ onMounted(async () => {
   */
   await initEngine();
   await initOutbox(uiSettings.record_endpoint);
+  /* Cheap and synchronous: it stores a string the export sheet reads later. */
+  setExportEndpoint(uiSettings.export_endpoint);
   await loadHistory();
   /*
     Last and unawaited by anything: the boundary table is only needed by the
@@ -79,7 +83,7 @@ watch(
 
 watch(
   () => test.stage,
-  (stage) => {
+  async (stage) => {
     if (stage !== STAGE.DONE) return;
     if (test.aborted) return;
     if (!hasResult()) {
@@ -88,6 +92,17 @@ watch(
       // screen, which would read as "your connection is 0 Mbps".
       test.error = { kind: "no-result" };
       return;
+    }
+    if (!test.location) {
+      try {
+        const loc = await fetchLocation(2500);
+        if (loc) test.location = loc;
+      } catch (e) {}
+    } else if (!test.location.fullAddress) {
+      try {
+        const enriched = await withArea(test.location);
+        if (enriched) test.location = enriched;
+      } catch (e) {}
     }
     /*
       The whole run, not four numbers of it.

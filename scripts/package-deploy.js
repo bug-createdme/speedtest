@@ -33,6 +33,9 @@ const STAGE = path.join(OUT_ROOT, "speedtest-deploy");
 
 const BACKEND_IMAGE = "speedtest-backend-go:latest";
 const NGINX_IMAGE = "nginx:1.27-alpine";
+/* Runs backend/export.php, the only route Android has for getting a file off
+   the handset. Must match the image in docker-compose.backend-go.yml. */
+const PHP_IMAGE = "php:8.3-fpm-alpine";
 
 const log = (m) => console.log("\x1b[36m[package]\x1b[0m " + m);
 const warn = (m) => console.log("\x1b[33m[package] WARN " + m + "\x1b[0m");
@@ -116,7 +119,10 @@ function envExample() {
     "# refused, including the right one. It fails closed, but it costs an",
     "# afternoon to find.",
     "SPEEDTEST_ALLOWED_ORIGIN_REGEX=.",
-    "#SPEEDTEST_ALLOWED_ORIGIN_REGEX=^https://app[.]unitel[.]com[.]la$",
+    "# The mini-app's REAL origin, read off the access log on the deployed",
+    "# nodes. It is an emas.alibaba.com host, NOT app.unitel.com.la - tightening",
+    "# to the latter matches nothing and kills every measurement.",
+    "#SPEEDTEST_ALLOWED_ORIGIN_REGEX=^https://[0-9]+[.]app[.]mini[.]windvane[.]suite[.]emas[.]alibaba[.]com$",
     "",
     "# --profile tls only. Ignored by --profile dev.",
     "#",
@@ -125,6 +131,30 @@ function envExample() {
     "# certificate until somebody noticed.",
     "SPEEDTEST_SERVER_NAME=speedtest.example.la",
     "SPEEDTEST_CERT_DIR=/etc/letsencrypt/live/speedtest.example.la",
+    "",
+    "# The public URL of the export endpoint - the only route Android has for",
+    "# getting a file off the handset.",
+    "#",
+    "# REQUIRED whenever anything upstream rewrites the path. Left empty,",
+    "# export.php builds the download link out of the request it received, and",
+    "# a balancer that strips a prefix makes that link point at a path nobody",
+    "# can reach. It fails QUIETLY: the upload still answers 201.",
+    "#",
+    "# Must match export_endpoint in the mini-app's settings.json.",
+    "SPEEDTEST_EXPORT_BASE_URL=",
+    "#SPEEDTEST_EXPORT_BASE_URL=https://speedtest.example.la/speedtest/export.php",
+    "",
+    "# Which node serves /export.php for the whole pool.",
+    "#",
+    "# Exports are stored on local disk. With more than one node behind a load",
+    "# balancer, an upload and its download can land on different ones and the",
+    "# link fails intermittently - looking exactly like an expiry. Every node",
+    "# forwards to the address below, so set the SAME value on ALL of them.",
+    "# Pointing each node at itself recreates the split this prevents.",
+    "#",
+    "# The default is this server's own listener, which is right for one node.",
+    "SPEEDTEST_EXPORT_NODE=127.0.0.1:8080",
+    "#SPEEDTEST_EXPORT_NODE=10.120.162.18:8087",
     ""
   ].join("\n");
 }
@@ -234,11 +264,31 @@ function main() {
   fs.rmSync(OUT_ROOT, { recursive: true, force: true });
   fs.mkdirSync(STAGE, { recursive: true });
 
-  /* Both images in one archive. The target may have no registry access at all,
-     and nginx:alpine is as unreachable there as our own image. */
+  /* All three images in one archive. The target may have no registry access at
+     all, and nginx:alpine and php:fpm-alpine are as unreachable there as our
+     own image.
+
+     The two stock images are pulled first rather than assumed: `docker save`
+     on an image this machine has never seen fails, and packaging is not the
+     moment to discover that. A pull that fails because the image is already
+     local and the network is down is not fatal - the save that follows is
+     what actually has to work. */
+  for (const image of [NGINX_IMAGE, PHP_IMAGE]) {
+    try {
+      sh("docker image inspect " + image + " --format {{.Id}}");
+    } catch (e) {
+      log("pulling " + image + "...");
+      sh("docker pull " + image);
+    }
+  }
+
   log("saving images (the slow part)...");
   const imagesTar = path.join(STAGE, "images.tar");
-  sh('docker save ' + BACKEND_IMAGE + " " + NGINX_IMAGE + ' -o "' + imagesTar + '"');
+  sh(
+    "docker save " +
+      [BACKEND_IMAGE, NGINX_IMAGE, PHP_IMAGE].join(" ") +
+      ' -o "' + imagesTar + '"'
+  );
   ok("images.tar  " + human(fs.statSync(imagesTar).size));
 
   fs.writeFileSync(path.join(STAGE, "docker-compose.yml"), bundleCompose());
@@ -249,10 +299,20 @@ function main() {
     "docker/nginx-speedtest-endpoints.conf",
     "docker/speedtest_limits.conf",
     "docker/speedtest_proxy.conf",
-    "docker/backend-go.settings.toml"
+    "docker/backend-go.settings.toml",
+    /* clear_env = no. Without it every getenv() in export.php returns false and
+       the endpoint answers "export storage unavailable" with the variables
+       plainly set - see docs/deploy-backend.md section 8. */
+    "docker/php-export-fpm.conf"
   ]) {
     copy(f);
   }
+
+  /* The export endpoint itself. The compose mounts ./backend into the php
+     container, so this has to be in the bundle or the mount is empty and every
+     export 404s. */
+  copy("backend/export.php");
+  copy("backend/cors_util.php");
 
   /* 40 MB, and not optional: without it getIP returns no ISP name and
      MOBILE_OPERATOR - the carrier the whole report groups by - is null on every

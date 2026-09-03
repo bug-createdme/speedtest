@@ -264,7 +264,10 @@ export function buildRecord(input) {
       still resolved (best effort), because NET_TYPE null already marks the row
       as unverified. See context/operator.js.
     */
-    MOBILE_OPERATOR: net === "wifi" || net === "ethernet" ? null : normaliseOperator(t.isp, t.ip),
+    MOBILE_OPERATOR:
+      net === "wifi" || net === "ethernet"
+        ? null
+        : normaliseOperator(t.isp, t.ip, input.isdn || t.isdn),
     IPV4: strOrNull(t.ip),
     IPV6: null,
     NET_TYPE: net,
@@ -308,7 +311,8 @@ export function buildRecord(input) {
     LOCATION_COUNTRY: input.location ? strOrNull(input.location.country) : null,
     LOCATION_AAL1: input.location ? strOrNull(input.location.aal1) : null, // province
     LOCATION_AAL2: input.location ? strOrNull(input.location.aal2) : null, // district
-    LOCATION_FULL_ADDRESS: null,
+    LOCATION_LOCALITY: input.location ? strOrNull(input.location.locality) : null, // locality / village
+    LOCATION_FULL_ADDRESS: input.location ? strOrNull(input.location.fullAddress) : null,
 
     /*
       ── radio: not collected yet ──────────────────────────────────────
@@ -467,6 +471,7 @@ export const RECORD_FIELDS = [
   "LOCATION_COUNTRY",
   "LOCATION_AAL1",
   "LOCATION_AAL2",
+  "LOCATION_LOCALITY",
   "LOCATION_FULL_ADDRESS",
   "MOBILE_CELL_ID",
   "MOBILE_TAC",
@@ -540,3 +545,23 @@ export function recordsToCsv(records) {
   }
   return rows.join("\n");
 }
+
+function tsvField(value) {
+  if (value === null || value === undefined) return "";
+  return String(value).replace(/[\t\n\r]/g, " ");
+}
+
+/**
+ * Records to TSV (Tab-Separated Values), in RECORD_FIELDS order.
+ *
+ * Pasting TSV into Microsoft Excel, Google Sheets, or WPS Office cleanly
+ * distributes values into individual columns and cells without delimiter ambiguity.
+ */
+export function recordsToTsv(records) {
+  const rows = [RECORD_FIELDS.join("\t")];
+  for (const record of records || []) {
+    rows.push(RECORD_FIELDS.map((field) => tsvField(record ? record[field] : null)).join("\t"));
+  }
+  return rows.join("\n");
+}
+

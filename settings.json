@@ -9,6 +9,7 @@
   "loaded_latency": true,
   "windvane_sdk_url": "./windvane.js",
   "record_endpoint": "",
+  "export_endpoint": "",
   "area_table_url": "",
   "url_browse": "",
   "browse_target_bytes": 500000,

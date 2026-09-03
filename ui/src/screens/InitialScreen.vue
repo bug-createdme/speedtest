@@ -2,6 +2,7 @@
 import { computed, onMounted } from "vue";
 import StartButton from "../components/StartButton.vue";
 import { useI18n } from "../i18n/index.js";
+import { fetchLocation } from "../context/location.js";
 import { fetchClientIp, test } from "../state/test.js";
 import { SCREEN, connectionType, goTo } from "../state/ui.js";
 
@@ -11,6 +12,11 @@ const { t } = useI18n();
 onMounted(() => {
   if (!test.ip) {
     fetchClientIp();
+  }
+  if (!test.location) {
+    fetchLocation(10000).then((loc) => {
+      if (loc) test.location = loc;
+    }).catch(() => {});
   }
 });
 

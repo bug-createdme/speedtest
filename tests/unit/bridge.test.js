@@ -243,3 +243,87 @@ describe("whenBridgeReady", () => {
     expect(ready).toBe(false);
   });
 });
+
+describe("uint8ArrayToBase64", () => {
+  it("converts byte arrays to valid base64 strings", async () => {
+    const { uint8ArrayToBase64 } = await import("../../ui/src/bridge/windvane.js");
+    const bytes = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
+    expect(uint8ArrayToBase64(bytes)).toBe("SGVsbG8=");
+  });
+
+  it("handles empty or null input gracefully", async () => {
+    const { uint8ArrayToBase64 } = await import("../../ui/src/bridge/windvane.js");
+    expect(uint8ArrayToBase64(null)).toBe("");
+    expect(uint8ArrayToBase64(new Uint8Array([]))).toBe("");
+  });
+});
+
+describe("writeDiskFile", () => {
+  it("refuses a call with no filename or no data", async () => {
+    const { writeDiskFile } = await import("../../ui/src/bridge/windvane.js");
+    expect(await writeDiskFile("", "content")).toMatchObject({ ok: false, reason: "empty" });
+    expect(await writeDiskFile("file.csv", "")).toMatchObject({ ok: false, reason: "empty" });
+  });
+
+  it("does not claim a write outside the super-app", async () => {
+    const { writeDiskFile } = await import("../../ui/src/bridge/windvane.js");
+    expect(await writeDiskFile("file.csv", "a,b\n1,2")).toMatchObject({
+      ok: false,
+      reason: "no-bridge"
+    });
+  });
+});
+
+/*
+  The refusal the Unitel Android container actually gives, observed on a
+  SM-A576B running WindVane/8.5.0 EmasMiniApp/1.0.0:
+
+    [windvane] WVFile.write failed  {msg: "Please apply for JSAPI authorization"}
+
+  It has to be told apart from every other failure, because it is the one that
+  no change on this side can fix - the mini-app's appId is not on the
+  container's allowlist for WVFile, and only the super-app team can add it.
+*/
+describe("isAuthError", () => {
+  it("recognises the container's own refusal", async () => {
+    const { isAuthError } = await import("../../ui/src/bridge/windvane.js");
+    expect(isAuthError({ msg: "Please apply for JSAPI authorization" })).toBe(true);
+    expect(isAuthError({ ret: ["HY_NO_PERMISSION"] })).toBe(true);
+    expect(isAuthError("Forbidden")).toBe(true);
+  });
+
+  it("does not mistake an ordinary failure for one", async () => {
+    const { isAuthError } = await import("../../ui/src/bridge/windvane.js");
+    expect(isAuthError(null)).toBe(false);
+    expect(isAuthError({ reason: "timeout" })).toBe(false);
+    expect(isAuthError({ ret: ["HY_FAILED"] })).toBe(false);
+    expect(isAuthError({ msg: "File not found" })).toBe(false);
+  });
+});
+
+/*
+  The regression these guard: the previous parser treated any object without an
+  `error` field as a successful write, so a container that answered "{}" - or
+  answered with a failure it spelled differently - produced "saved
+  successfully" over a file that was never created.
+*/
+describe("parseWriteResult", () => {
+  it("accepts only an affirmative answer", async () => {
+    const { parseWriteResult } = await import("../../ui/src/bridge/windvane.js");
+    expect(parseWriteResult({ ret: ["HY_SUCCESS"] })).toBe(true);
+    expect(parseWriteResult({ ret: "HY_SUCCESS" })).toBe(true);
+    expect(parseWriteResult({ success: true })).toBe(true);
+    expect(parseWriteResult({ status: "success" })).toBe(true);
+  });
+
+  it("rejects silence, failure and anything that is not an object", async () => {
+    const { parseWriteResult } = await import("../../ui/src/bridge/windvane.js");
+    expect(parseWriteResult({})).toBe(false);
+    expect(parseWriteResult(null)).toBe(false);
+    expect(parseWriteResult("HY_SUCCESS")).toBe(false);
+    expect(parseWriteResult({ ret: ["HY_FAILED"] })).toBe(false);
+    expect(parseWriteResult({ ret: ["HY_NOT_IN_WINDVANE"] })).toBe(false);
+    expect(parseWriteResult({ ret: ["NO_HANDLER"] })).toBe(false);
+  });
+});
+

@@ -150,29 +150,39 @@ export function loadSdk(url, timeoutMs) {
 }
 
 /*
-  Promisified WindVane.call. Resolves with the result, or null on any failure -
-  a missing bridge, an unsupported method, a native error, or a call that never
-  calls either callback back. That last case is why there is a timeout: a
-  native bridge that silently drops a call would otherwise leave this pending
-  forever, and anything awaiting it would hang.
+  Promisified WindVane.call, keeping the failure.
+
+  call() below answers null for everything that went wrong, which is the right
+  shape for a caller that only wants the value. It is the wrong shape for one
+  that has to tell a user WHY, because the container's own words are the only
+  place a refusal is explained - "Please apply for JSAPI authorization" is not
+  something any amount of client code can deduce.
+
+  The timeout is here because a native bridge that silently drops a call would
+  otherwise leave this pending forever, and anything awaiting it would hang.
+
+  @returns {Promise<{ok: boolean, value?: *, error?: *}>}
 */
-export async function call(namespace, method, params, timeoutMs) {
-  if (!isSuperApp()) return null;
+export async function callDetailed(namespace, method, params, timeoutMs) {
+  if (!isSuperApp()) return { ok: false, error: { reason: "no-bridge" } };
   if (!(await whenBridgeReady())) {
     console.warn(
       "[windvane] " + namespace + "." + method + " skipped: no bridge after " +
         BRIDGE_WAIT_MS + "ms"
     );
-    return null;
+    return { ok: false, error: { reason: "no-bridge-timeout" } };
   }
   return new Promise(resolve => {
     let settled = false;
-    const finish = value => {
+    const finish = outcome => {
       if (settled) return;
       settled = true;
-      resolve(value);
+      resolve(outcome);
     };
-    const timer = setTimeout(() => finish(null), timeoutMs || 5000);
+    const timer = setTimeout(
+      () => finish({ ok: false, error: { reason: "timeout" } }),
+      timeoutMs || 5000
+    );
     try {
       window.WindVane.call(
         namespace,
@@ -180,20 +190,30 @@ export async function call(namespace, method, params, timeoutMs) {
         params || {},
         result => {
           clearTimeout(timer);
-          finish(result);
+          finish({ ok: true, value: result });
         },
         error => {
           clearTimeout(timer);
           console.warn("[windvane] " + namespace + "." + method + " failed", error);
-          finish(null);
+          finish({ ok: false, error });
         }
       );
     } catch (e) {
       clearTimeout(timer);
       console.warn("[windvane] " + namespace + "." + method + " threw", e);
-      finish(null);
+      finish({ ok: false, error: { reason: "threw", message: String((e && e.message) || e) } });
     }
   });
+}
+
+/*
+  The same call for everyone who only wants the value: the result, or null on
+  any failure - a missing bridge, an unsupported method, a native error, or a
+  call that never came back.
+*/
+export async function call(namespace, method, params, timeoutMs) {
+  const outcome = await callDetailed(namespace, method, params, timeoutMs);
+  return outcome.ok ? outcome.value : null;
 }
 
 /*
@@ -406,6 +426,304 @@ export async function shareBase64Image(base64Image) {
   });
   return parseShareResult(result);
 }
+
+/* ── Files ───────────────────────────────────────────────────────────────── */
+
+/**
+ * Convert a Uint8Array to a Base64 string efficiently.
+ *
+ * @param {Uint8Array} bytes
+ * @returns {string}
+ */
+export function uint8ArrayToBase64(bytes) {
+  if (!bytes || !bytes.byteLength) return "";
+  let binary = "";
+  const len = bytes.byteLength;
+  const chunk = 8192;
+  for (let i = 0; i < len; i += chunk) {
+    const slice = bytes.subarray(i, Math.min(i + chunk, len));
+    binary += String.fromCharCode.apply(null, slice);
+  }
+  return btoa(binary);
+}
+
+/*
+  ── WHY WRITING A FILE IS A DIFFERENT PROBLEM ON ANDROID ────────────────────
+
+  On iOS none of this is used. WKWebView has navigator.share, it accepts a real
+  File, and report/share.js hands it one - which is why the iOS build already
+  exports a correct .csv and .xlsx. Android WebView has no Web Share API at all
+  (it is a Chrome feature, not a WebView one) and the container refuses blob:
+  downloads, so the only route left there is a JSAPI.
+
+  That JSAPI has to survive the legacy Android branch of the vendored
+  bootstrap. From windvane.js, callMethod():
+
+      } else if (m) {                                   // Android
+        var g = "hybrid://" + ns + ":" + sid + "/" + method + "?" + params;
+        window.prompt(g, "wv_hybrid:");
+
+  and three lines above it, iOS:
+
+        var g = "hybrid://" + ns + ":" + sid + "/" + method + "?"
+                + encodeURIComponent(params);
+
+  Android interpolates the params JSON into a URL RAW. A CSV carries newlines,
+  commas, quotes, "#", "%" and Lao/Vietnamese UTF-8; a base64 blob carries "+"
+  and "/". All of it reaches the native URL parser unescaped, and a single "#"
+  truncates everything after it. Then the whole file goes through one
+  synchronous window.prompt.
+
+  Hence: small chunks, and a caller that only ever sends text. A base64 .xlsx
+  does NOT come this way - see the note on writeDiskFile's data parameter.
+*/
+
+/* Characters per WVFile.write call. Small on purpose: on Android the payload
+   rides inside a window.prompt argument, and nothing tells us where the
+   container stops accepting one. */
+const FILE_CHUNK_CHARS = 2000;
+
+/**
+ * Ask the container whether a JSAPI exists, before calling it.
+ *
+ * @param {string} namespace
+ * @param {string} method
+ * @returns {Promise<boolean|null>} null when the question itself could not be
+ *          asked, which is NOT the same answer as "no": plenty of hosts
+ *          implement WVFile without implementing WVBase.canIUse.
+ */
+export async function canIUse(namespace, method) {
+  const result = await call("WVBase", "canIUse", { name: namespace + "." + method }, 2500);
+  if (!result || typeof result !== "object") return null;
+  for (const key of ["value", "result", "support", "isSupport", "data"]) {
+    const v = result[key];
+    if (typeof v === "boolean") return v;
+    if (v === "true" || v === "false") return v === "true";
+  }
+  return null;
+}
+
+/**
+ * Did a WVFile.write actually write?
+ *
+ * Strict on purpose. The previous version accepted any object without an
+ * `error` field, so a host answering "{}" produced "saved successfully" over a
+ * file that was never created. A write that cannot be confirmed is reported as
+ * a failure, because that is the answer a user can act on.
+ *
+ * Pulled out so it can be tested without a super-app in the loop.
+ *
+ * @param {*} result
+ * @returns {boolean}
+ */
+export function parseWriteResult(result) {
+  if (!result || typeof result !== "object") return false;
+  const ret = Array.isArray(result.ret)
+    ? result.ret.map(String)
+    : result.ret
+      ? [String(result.ret)]
+      : [];
+  if (ret.some(r => /FAIL|ERROR|NOT_|NO_/i.test(r))) return false;
+  if (ret.some(r => /SUCCESS/i.test(r))) return true;
+  if (result.success === true) return true;
+  if (String(result.status || "").toUpperCase() === "SUCCESS") return true;
+  return false;
+}
+
+/**
+ * Is this refusal the container saying the mini-app was never granted the API?
+ *
+ * Observed on a Samsung SM-A576B, Android 16, WindVane/8.5.0 EmasMiniApp/1.0.0:
+ *
+ *     [windvane] WVFile.write failed
+ *     {msg: "Please apply for JSAPI authorization"}
+ *
+ * That is not a bug in anything on this side. The method exists, the bridge is
+ * up, and the container declines because this mini-app's appId is not on the
+ * allowlist for WVFile. It has exactly one fix and it is not a code change, so
+ * it is worth telling apart from every other failure.
+ *
+ * @param {*} error
+ * @returns {boolean}
+ */
+export function isAuthError(error) {
+  if (!error) return false;
+  let text;
+  try {
+    text = typeof error === "string" ? error : JSON.stringify(error);
+  } catch (e) {
+    text = String(error);
+  }
+  return /authoriz|authoris|authority|permission|forbidden|HY_NO_PERMISSION/i.test(text || "");
+}
+
+/**
+ * Write a TEXT file to the container's storage, in chunks.
+ *
+ * @param {string} fileName
+ * @param {string} data Text, and only text. WVFile.write stores the string it
+ *        is handed; it does not base64-decode. Sending base64 produces a text
+ *        file full of base64, which is exactly what made the exported .xlsx
+ *        unreadable on Android.
+ * @returns {Promise<{ok: boolean, reason: string, detail?: *, chunks?: number}>}
+ */
+export async function writeDiskFile(fileName, data) {
+  if (!fileName || !data) return { ok: false, reason: "empty" };
+  if (!isSuperApp()) return { ok: false, reason: "no-bridge" };
+
+  const supported = await canIUse("WVFile", "write");
+  if (supported === false) return { ok: false, reason: "unsupported" };
+
+  const text = String(data);
+  const total = Math.max(1, Math.ceil(text.length / FILE_CHUNK_CHARS));
+  let detail = null;
+
+  for (let i = 0; i < total; i++) {
+    const params = {
+      mode: i === 0 ? "write" : "append",
+      fileName,
+      data: text.slice(i * FILE_CHUNK_CHARS, (i + 1) * FILE_CHUNK_CHARS)
+    };
+    let outcome = await callDetailed("WVFile", "write", params, 8000);
+
+    if (!outcome.ok || !parseWriteResult(outcome.value)) {
+      /* One retry on the first chunk under the mode name the previous build
+         sent. "write"/"append" is what the JSAPI documents; "overwrite" is
+         what was here before, and a host accepting only the latter would
+         otherwise be indistinguishable from a host without the API. Not worth
+         a second round trip once the container has said "unauthorized",
+         because the mode is not what it is objecting to. */
+      if (i === 0 && !isAuthError(outcome.error)) {
+        outcome = await callDetailed("WVFile", "write", { ...params, mode: "overwrite" }, 8000);
+        if (outcome.ok && parseWriteResult(outcome.value)) {
+          detail = outcome.value;
+          continue;
+        }
+      }
+      detail = outcome.ok ? outcome.value : outcome.error;
+      if (isAuthError(outcome.error)) {
+        return { ok: false, reason: "unauthorized", detail, chunks: i };
+      }
+      return { ok: false, reason: i === 0 ? "refused" : "truncated", detail, chunks: i };
+    }
+    detail = outcome.value;
+  }
+
+  return { ok: true, reason: "written", detail, chunks: total };
+}
+
+/*
+  ── WHAT THE EXPORT ROUTES ACTUALLY ARE ON THIS HANDSET ─────────────────────
+
+  Written because the Android failure is invisible from a desk. call() answers
+  null for "no bridge", for "no such method" and for "the native side dropped
+  it", and those three need completely different fixes. This runs on the device
+  with vConsole open and tells them apart.
+
+  The round trip is the part that matters. It writes a payload made of exactly
+  the characters the Android bridge does not escape - newline, comma, quote,
+  "#", "+", "/" - and reads it back. What comes back says both whether
+  WVFile.write exists and whether the URL transport mangles the payload on the
+  way through.
+*/
+const PROBE_FILE = "speedtest-probe.txt";
+const PROBE_TEXT = "PROBE-1\n\"a,b\"#c+d/e=f";
+
+/**
+ * Write a known payload and read it back.
+ *
+ * @returns {Promise<object>}
+ */
+export async function probeFileRoundTrip() {
+  const written = await writeDiskFile(PROBE_FILE, PROBE_TEXT);
+  if (!written.ok) {
+    /* Lifted out of the detail object because this is the line worth reading:
+       vConsole truncates a nested object to "Object {msg: "Please apply for
+       JSAPI author..." and the end of that sentence is the whole answer. */
+    const d = written.detail;
+    const message = d && typeof d === "object" ? d.msg || d.message || d.ret : d;
+    return {
+      wrote: false,
+      reason: written.reason,
+      message: message === undefined ? null : String(message),
+      detail: d
+    };
+  }
+  const read = await call("WVFile", "read", { fileName: PROBE_FILE }, 5000);
+  let got = null;
+  if (read && typeof read === "object") {
+    got = read.data !== undefined ? read.data : read.value !== undefined ? read.value : null;
+  }
+  return {
+    wrote: true,
+    readBack: got === null ? null : String(got),
+    matches: got !== null && String(got) === PROBE_TEXT,
+    detail: read
+  };
+}
+
+/**
+ * Everything that decides which export route this device can take.
+ *
+ * Logged as well as returned: the log is what a surveyor can screenshot out of
+ * vConsole, the return value is what the export sheet renders.
+ *
+ * @returns {Promise<object>}
+ */
+export async function probeExportRoutes() {
+  const win = typeof window !== "undefined" ? window : globalThis;
+  const ua = (win.navigator && win.navigator.userAgent) || "";
+  const wv = win.WindVane;
+
+  const report = {
+    userAgent: ua,
+    /* The bootstrap parses this out of the UA, and refuses every call with
+       HY_NOT_IN_WINDVANE when it is absent - so a null here explains a total
+       bridge failure on its own. */
+    windVaneUaVersion: (ua.match(/WindVane[/\s](\d+[._]\d+[._]\d+)/) || [])[1] || null,
+    isSuperApp: isSuperApp(),
+    windVane: typeof wv !== "undefined",
+    windVaneIsAvailable: wv ? wv.isAvailable : null,
+    windVaneNewBridge: wv ? wv.isNewBridgeAvailable : null,
+    nativeBridge: typeof win.__windvane__ !== "undefined",
+    nativeBridgeCall: !!(win.__windvane__ && win.__windvane__.call),
+    webShare: !!(win.navigator && typeof win.navigator.share === "function"),
+    webShareFiles: null,
+    canIUse: {},
+    roundTrip: null
+  };
+
+  try {
+    if (typeof File === "function" && win.navigator && win.navigator.canShare) {
+      const probe = new File([new Blob(["a"])], "probe.csv", { type: "text/csv" });
+      report.webShareFiles = win.navigator.canShare({ files: [probe] });
+    } else if (report.webShare) {
+      /* share() without canShare(): whether files are accepted cannot be known
+         without opening a sheet at the user, so it stays unanswered. */
+      report.webShareFiles = null;
+    } else {
+      report.webShareFiles = false;
+    }
+  } catch (e) {
+    report.webShareFiles = false;
+  }
+
+  const probes = [
+    ["WVFile", "write"],
+    ["WVFile", "read"],
+    ["CustomServiceJs", "shareContent"],
+    ["CustomServiceJs", "shareBase64Image"]
+  ];
+  for (const [ns, method] of probes) {
+    report.canIUse[ns + "." + method] = await canIUse(ns, method);
+  }
+
+  report.roundTrip = await probeFileRoundTrip();
+
+  console.log("[export] route probe", report);
+  return report;
+}
+
 
 /*
   Start the bridge. Fire-and-forget by design.

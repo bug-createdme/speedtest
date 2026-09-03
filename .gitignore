@@ -18,3 +18,8 @@ backend-go/.bin
 .env
 uploads/
 docker-backend-go.zip
+.agents/
+
+# Exports awaiting download (backend/export.php). Runtime data, and it
+# carries subscriber numbers - never commit it.
+backend/exports/
