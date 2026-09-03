@@ -362,6 +362,88 @@ export async function fetchNetworkType() {
   return "";
 }
 
+/**
+ * Normalizes language codes for the SuperApp bridge.
+ * Maps:
+ * - Lao: "la", "lo", "lao", "la-LA", "lo-LA" -> "la"
+ * - Vietnamese: "vi", "vie", "vi-VN" -> "vi"
+ * - English: "en", "eng", "en-US" -> "en"
+ *
+ * @param {string} raw
+ * @returns {string} Normalized locale ("la" | "vi" | "en") or empty string.
+ */
+export function normalizeAppLocale(raw) {
+  if (!raw || typeof raw !== "string") return "";
+  const clean = raw.toLowerCase().trim().replace(/_/g, "-");
+  if (clean.startsWith("la") || clean.startsWith("lo")) return "la";
+  if (clean.startsWith("vi")) return "vi";
+  if (clean.startsWith("en")) return "en";
+  return "";
+}
+
+/**
+ * Parse the result from CustomServiceJs.getAppSetting to extract language.
+ *
+ * Observed in Unitel SuperApp / WindVane mini-apps (e.g. miniapp-predict-worldcup):
+ * - Plain object: { language: "la" } or { lang: "lo" } or { locale: "vi" }
+ * - Object with JSON string in data: { data: '{"language":"la",...}' }
+ * - Object with parsed object in data: { data: { language: "la" } }
+ * - Bare JSON string: '{"language":"la"}'
+ * - Or raw code string: "la", "lo", "vi", "en"
+ *
+ * @param {*} result
+ * @returns {string} Normalized locale ("la" | "vi" | "en") or empty string.
+ */
+export function parseAppLanguage(result) {
+  if (!result) return "";
+  let data = result;
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data);
+    } catch (e) {
+      return normalizeAppLocale(data);
+    }
+  }
+  if (data && typeof data === "object") {
+    if (data.data) {
+      let inner = data.data;
+      if (typeof inner === "string") {
+        try {
+          inner = JSON.parse(inner);
+        } catch (e) {}
+      }
+      if (inner && typeof inner === "object") {
+        data = inner;
+      }
+    }
+    const raw = data.language || data.lang || data.locale || "";
+    return normalizeAppLocale(raw);
+  }
+  return "";
+}
+
+/**
+ * Fetch the current SuperApp system/app language setting via WindVane.
+ *
+ * Uses CustomServiceJs.getAppSetting, the JSAPI provided by Unitel SuperApp.
+ *
+ * @param {number} [timeoutMs=3000]
+ * @returns {Promise<string>} Normalized locale code ("la" | "vi" | "en") or empty string.
+ */
+export async function fetchAppLanguage(timeoutMs) {
+  const win = typeof window !== "undefined" ? window : globalThis;
+  if (!win) return "";
+
+  if (typeof win !== "undefined" && win.WindVane) {
+    const result = await call("CustomServiceJs", "getAppSetting", {}, timeoutMs || 3000);
+    const parsed = parseAppLanguage(result);
+    if (parsed) return parsed;
+  }
+
+  return "";
+}
+
+
 /*
   Did a share actually open the sheet?
 
@@ -743,7 +825,7 @@ export async function probeExportRoutes() {
 export async function initBridge(sdkUrl) {
   await loadSdk(sdkUrl);
   if (!isSuperApp()) return false;
-  await Promise.all([fetchSubscriber(), fetchNetworkType()]);
+  await Promise.all([fetchSubscriber(), fetchNetworkType(), fetchAppLanguage()]);
   return true;
 }
 

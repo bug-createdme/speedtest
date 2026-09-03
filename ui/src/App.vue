@@ -23,6 +23,7 @@ import { setExportEndpoint } from "./report/share.js";
 import { loadAreaTable } from "./context/geo.js";
 import { fetchLocation, withArea } from "./context/location.js";
 import { isdn } from "./bridge/windvane.js";
+import { syncSuperAppLanguage } from "./i18n/index.js";
 import {
   SCREEN,
   connectionSource,
@@ -47,6 +48,7 @@ let runStartedAt = Date.now();
 
 onMounted(async () => {
   detectConnection();
+  syncSuperAppLanguage().catch(() => {});
   /*
     Awaited in order, and each step needs the one before it:
       - initEngine reads settings.json, which is where record_endpoint lives

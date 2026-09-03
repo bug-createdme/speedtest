@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { parseAuthCode, parseNetworkType } from "../../ui/src/bridge/windvane.js";
+import {
+  normalizeAppLocale,
+  parseAppLanguage,
+  parseAuthCode,
+  parseNetworkType
+} from "../../ui/src/bridge/windvane.js";
 import { compareNetwork } from "../../ui/src/context/network.js";
 
 /*
@@ -324,6 +329,73 @@ describe("parseWriteResult", () => {
     expect(parseWriteResult({ ret: ["HY_FAILED"] })).toBe(false);
     expect(parseWriteResult({ ret: ["HY_NOT_IN_WINDVANE"] })).toBe(false);
     expect(parseWriteResult({ ret: ["NO_HANDLER"] })).toBe(false);
+  });
+});
+
+describe("normalizeAppLocale", () => {
+  it("normalizes Lao variants to la", () => {
+    expect(normalizeAppLocale("la")).toBe("la");
+    expect(normalizeAppLocale("lo")).toBe("la");
+    expect(normalizeAppLocale("LA")).toBe("la");
+    expect(normalizeAppLocale("LO")).toBe("la");
+    expect(normalizeAppLocale("la-LA")).toBe("la");
+    expect(normalizeAppLocale("lo-LA")).toBe("la");
+    expect(normalizeAppLocale("lao")).toBe("la");
+  });
+
+  it("normalizes Vietnamese variants to vi", () => {
+    expect(normalizeAppLocale("vi")).toBe("vi");
+    expect(normalizeAppLocale("VI")).toBe("vi");
+    expect(normalizeAppLocale("vi-VN")).toBe("vi");
+    expect(normalizeAppLocale("vie")).toBe("vi");
+  });
+
+  it("normalizes English variants to en", () => {
+    expect(normalizeAppLocale("en")).toBe("en");
+    expect(normalizeAppLocale("EN")).toBe("en");
+    expect(normalizeAppLocale("en-US")).toBe("en");
+    expect(normalizeAppLocale("eng")).toBe("en");
+  });
+
+  it("returns empty string for unrecognized or empty locales", () => {
+    expect(normalizeAppLocale("")).toBe("");
+    expect(normalizeAppLocale(null)).toBe("");
+    expect(normalizeAppLocale(undefined)).toBe("");
+    expect(normalizeAppLocale("fr")).toBe("");
+    expect(normalizeAppLocale("zh")).toBe("");
+  });
+});
+
+describe("parseAppLanguage", () => {
+  it("parses direct object responses from CustomServiceJs.getAppSetting", () => {
+    expect(parseAppLanguage({ language: "la" })).toBe("la");
+    expect(parseAppLanguage({ language: "lo" })).toBe("la");
+    expect(parseAppLanguage({ lang: "vi" })).toBe("vi");
+    expect(parseAppLanguage({ locale: "en" })).toBe("en");
+  });
+
+  it("parses data envelope with JSON string", () => {
+    expect(parseAppLanguage({ data: '{"language":"la"}' })).toBe("la");
+    expect(parseAppLanguage({ data: '{"lang":"lo"}' })).toBe("la");
+    expect(parseAppLanguage({ data: '{"language":"vi-VN"}' })).toBe("vi");
+  });
+
+  it("parses data envelope with nested object", () => {
+    expect(parseAppLanguage({ data: { language: "la" } })).toBe("la");
+    expect(parseAppLanguage({ data: { lang: "en-US" } })).toBe("en");
+  });
+
+  it("parses bare string responses", () => {
+    expect(parseAppLanguage('{"language":"la"}')).toBe("la");
+    expect(parseAppLanguage("lo")).toBe("la");
+    expect(parseAppLanguage("vi")).toBe("vi");
+  });
+
+  it("returns empty string for missing or invalid results", () => {
+    expect(parseAppLanguage(null)).toBe("");
+    expect(parseAppLanguage({})).toBe("");
+    expect(parseAppLanguage({ data: "{ broken json" })).toBe("");
+    expect(parseAppLanguage({ otherField: "something" })).toBe("");
   });
 });
 

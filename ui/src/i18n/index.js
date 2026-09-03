@@ -1,12 +1,14 @@
 import { ref } from "vue";
 import en from "./en.js";
-import lo from "./lo.js";
+import la from "./la.js";
 import vi from "./vi.js";
+import { fetchAppLanguage } from "../bridge/windvane.js";
 
-const MESSAGES = { en, lo, vi };
-export const LOCALES = ["lo", "en", "vi"];
+const MESSAGES = { la, en, vi, lo: la };
+export const LOCALES = ["la", "en", "vi"];
 const FALLBACK = "en";
 const STORAGE_KEY = "unitel-speedtest.locale";
+const LEGACY_STORAGE_KEY = "language";
 
 /*
   Key parity check, dev only. A locale that drifts from en.js otherwise fails
@@ -25,32 +27,108 @@ if (import.meta.env.DEV) {
   }
 }
 
-function detectLocale() {
+/**
+ * Normalizes input language string into supported locale code ("la", "vi", "en").
+ * Maps variants:
+ * - "la", "lo", "lao", "la-LA", "lo-LA" -> "la"
+ * - "vi", "vie", "vi-VN" -> "vi"
+ * - "en", "eng", "en-US" -> "en"
+ */
+export function normalizeLocale(raw) {
+  if (!raw || typeof raw !== "string") return "";
+  const clean = raw.toLowerCase().trim().replace(/_/g, "-");
+  if (clean.startsWith("la") || clean.startsWith("lo")) return "la";
+  if (clean.startsWith("vi")) return "vi";
+  if (clean.startsWith("en")) return "en";
+  return "";
+}
+
+/**
+ * Checks URL query parameters for language/locale hints passed by SuperApp
+ * (e.g. ?lang=la, ?language=lo, ?locale=vi).
+ */
+export function getUrlLocale() {
+  if (typeof window === "undefined" || !window.location || !window.location.search) return "";
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved && LOCALES.includes(saved)) return saved;
+    const params = new URLSearchParams(window.location.search);
+    const candidate = params.get("lang") || params.get("language") || params.get("locale");
+    return normalizeLocale(candidate);
+  } catch (e) {
+    return "";
+  }
+}
+
+export function detectLocale() {
+  // 1. URL parameters (highest priority, direct from SuperApp launch)
+  const fromUrl = getUrlLocale();
+  if (fromUrl) {
+    try {
+      localStorage.setItem(STORAGE_KEY, fromUrl);
+      localStorage.setItem(LEGACY_STORAGE_KEY, fromUrl);
+    } catch (e) {}
+    return fromUrl;
+  }
+
+  // 2. Saved locale in localStorage
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
+    const normalizedSaved = normalizeLocale(saved);
+    if (normalizedSaved && LOCALES.includes(normalizedSaved)) return normalizedSaved;
   } catch (e) {
     // Private mode / storage disabled. Fall through to browser detection.
   }
-  const candidates = navigator.languages || [navigator.language || ""];
-  for (const tag of candidates) {
-    const base = String(tag).toLowerCase().split("-")[0];
-    if (LOCALES.includes(base)) return base;
+
+  // 3. Browser / system language
+  if (typeof navigator !== "undefined") {
+    const candidates = navigator.languages || [navigator.language || ""];
+    for (const tag of candidates) {
+      const normalized = normalizeLocale(tag);
+      if (normalized && LOCALES.includes(normalized)) return normalized;
+    }
   }
+
   return FALLBACK;
 }
 
 export const locale = ref(detectLocale());
 
 export function setLocale(code) {
-  if (!LOCALES.includes(code)) return;
-  locale.value = code;
-  document.documentElement.setAttribute("lang", code);
+  const target = normalizeLocale(code);
+  if (!target || !LOCALES.includes(target)) return;
+  locale.value = target;
+  if (typeof document !== "undefined" && document.documentElement) {
+    document.documentElement.setAttribute("lang", target);
+  }
   try {
-    localStorage.setItem(STORAGE_KEY, code);
+    localStorage.setItem(STORAGE_KEY, target);
+    localStorage.setItem(LEGACY_STORAGE_KEY, target);
   } catch (e) {
     // Not being able to remember the choice is not worth failing over.
   }
+}
+
+/**
+ * Synchronize language with SuperApp (URL param or CustomServiceJs.getAppSetting bridge).
+ * Updates reactive locale ref on change.
+ */
+export async function syncSuperAppLanguage() {
+  const urlLang = getUrlLocale();
+  if (urlLang) {
+    setLocale(urlLang);
+    return urlLang;
+  }
+
+  try {
+    const bridgeLang = await fetchAppLanguage(3000);
+    if (bridgeLang) {
+      setLocale(bridgeLang);
+      return bridgeLang;
+    }
+  } catch (e) {
+    console.warn("[i18n] SuperApp language sync failed:", e);
+  }
+
+  return locale.value;
 }
 
 /*
@@ -61,8 +139,8 @@ export function setLocale(code) {
 */
 export function translate(key, params) {
   const table = MESSAGES[locale.value] || MESSAGES[FALLBACK];
-  let text = table[key];
-  if (text === undefined) text = MESSAGES[FALLBACK][key];
+  let text = table ? table[key] : undefined;
+  if (text === undefined) text = MESSAGES[FALLBACK] ? MESSAGES[FALLBACK][key] : undefined;
   if (text === undefined) return key;
   if (!params) return text;
   return text.replace(/\{(\w+)\}/g, (match, name) =>
@@ -81,8 +159,25 @@ export function useI18n() {
     locale,
     setLocale,
     locales: LOCALES,
-    localeName: (code) => MESSAGES[code]["lang.name"]
+    localeName: (code) => {
+      const normalized = normalizeLocale(code) || code;
+      return (MESSAGES[normalized] && MESSAGES[normalized]["lang.name"]) || code;
+    }
   };
 }
 
-document.documentElement.setAttribute("lang", locale.value);
+if (typeof document !== "undefined" && document.documentElement) {
+  document.documentElement.setAttribute("lang", locale.value);
+}
+
+// Automatically listen for system or SuperApp container lifecycle changes
+if (typeof window !== "undefined") {
+  window.addEventListener("languagechange", () => {
+    syncSuperAppLanguage();
+  });
+  if (typeof document !== "undefined") {
+    document.addEventListener("resume", () => {
+      syncSuperAppLanguage();
+    });
+  }
+}

@@ -31,7 +31,7 @@ defineProps({
     aria-hidden="true"
     focusable="false"
   >
-    <template v-if="locale === 'lo'">
+    <template v-if="locale === 'la' || locale === 'lo'">
       <rect width="30" height="20" fill="#ce1126" />
       <rect y="5" width="30" height="10" fill="#002868" />
       <circle cx="15" cy="10" r="4" fill="#ffffff" />
