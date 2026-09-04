@@ -3,7 +3,8 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useI18n } from "../i18n/index.js";
 import { history, toCsv, toTsv, toXlsx } from "../state/history.js";
 import { copyToClipboard, downloadFile, saveFile, shareSummary } from "../report/share.js";
-import { XLSX_MIME } from "../report/xlsx.js";
+import { XLSX_MIME, fieldAlignment, fieldHeaderStyle } from "../report/xlsx.js";
+import { RECORD_FIELDS } from "../measurement/record.js";
 import { isSuperApp, probeExportRoutes } from "../bridge/windvane.js";
 
 const props = defineProps({
@@ -21,9 +22,31 @@ const copyFeedback = ref("");
 const shareFeedback = ref("");
 const downloadMsg = ref("");
 const showPreview = ref(false);
+const previewMode = ref("table"); // 'table' | 'raw'
 
 const recordCount = computed(() => history.value.length);
 const inSuperApp = computed(() => isSuperApp());
+
+const previewRecords = computed(() => {
+  return history.value.slice(0, 8).map((row) => row.record);
+});
+
+const categoryLegend = [
+  { id: 1, key: "colIdentity", color: "#1E293B" },
+  { id: 2, key: "colDevice", color: "#0F766E" },
+  { id: 3, key: "colNetwork", color: "#1D4ED8" },
+  { id: 4, key: "colLocation", color: "#047857" },
+  { id: 5, key: "colRadio", color: "#B45309" },
+  { id: 6, key: "colSpeed", color: "#B91C1C" },
+  { id: 7, key: "colWebVideo", color: "#C2410C" },
+  { id: 8, key: "colQoE", color: "#0E7490" }
+];
+
+function formatCellVal(val) {
+  if (val === null || val === undefined) return "-";
+  if (typeof val === "boolean") return val ? "TRUE" : "FALSE";
+  return String(val);
+}
 
 function handleKeydown(e) {
   if (e.key === "Escape") {
@@ -301,6 +324,22 @@ async function copyDiag() {
         </button>
       </div>
 
+      <!-- Format Feature Badge -->
+      <div class="format-hint">
+        <span v-if="activeTab === 'xlsx'" class="format-badge badge-excel">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+            <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.5 6L7 11.5 4.5 9l1.2-1.2L7 9.1l3.3-3.3L11.5 6z"/>
+          </svg>
+          {{ t("export.excelBadge") }}
+        </span>
+        <span v-else class="format-badge badge-csv">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+            <path d="M4 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/>
+          </svg>
+          {{ t("export.csvBadge") }}
+        </span>
+      </div>
+
       <!-- Body Content -->
       <div class="sheet-body">
         <!-- Notice box for mobile SuperApp environment -->
@@ -457,7 +496,78 @@ async function copyDiag() {
             </svg>
           </button>
           <div v-if="showPreview" class="preview-content">
-            <pre class="preview-code"><code>{{ previewSnippet }}</code></pre>
+            <!-- Mode switch: Table vs Raw -->
+            <div class="preview-mode-switch">
+              <button
+                type="button"
+                class="mode-btn"
+                :class="{ active: previewMode === 'table' }"
+                @click="previewMode = 'table'"
+              >
+                {{ t("export.viewTable") }}
+              </button>
+              <button
+                type="button"
+                class="mode-btn"
+                :class="{ active: previewMode === 'raw' }"
+                @click="previewMode = 'raw'"
+              >
+                {{ t("export.viewRaw") }}
+              </button>
+            </div>
+
+            <!-- Table Preview with category colors & zebra striping -->
+            <div v-if="previewMode === 'table'" class="table-preview-wrap">
+              <!-- Category Legend -->
+              <div class="category-legend">
+                <span
+                  v-for="cat in categoryLegend"
+                  :key="cat.id"
+                  class="cat-chip"
+                  :style="{ backgroundColor: cat.color }"
+                >
+                  {{ t("export." + cat.key) }}
+                </span>
+              </div>
+
+              <!-- Scrollable data table -->
+              <div class="table-scroll">
+                <table class="preview-table">
+                  <thead>
+                    <tr>
+                      <th
+                        v-for="field in RECORD_FIELDS"
+                        :key="field"
+                        class="preview-th"
+                        :class="'th-cat-' + fieldHeaderStyle(field)"
+                      >
+                        {{ field }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="(rec, rIdx) in previewRecords"
+                      :key="rIdx"
+                      class="preview-tr"
+                      :class="{ 'tr-zebra': rIdx % 2 === 1 }"
+                    >
+                      <td
+                        v-for="field in RECORD_FIELDS"
+                        :key="field"
+                        class="preview-td"
+                        :class="'td-align-' + fieldAlignment(field)"
+                      >
+                        {{ formatCellVal(rec ? rec[field] : null) }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Raw text preview -->
+            <pre v-else class="preview-code"><code>{{ previewSnippet }}</code></pre>
           </div>
         </div>
 
@@ -928,4 +1038,132 @@ async function copyDiag() {
   opacity: 0;
   transform: translateY(-4px);
 }
+
+/* Format badge */
+.format-hint {
+  padding: 8px 16px 2px;
+}
+
+.format-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-pill, 9999px);
+  line-height: 1.35;
+}
+
+.badge-excel {
+  background: rgba(16, 185, 129, 0.14);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-csv {
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+/* Mode switch */
+.preview-mode-switch {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0 8px;
+}
+
+.mode-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted, #9aa2b1);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.mode-btn.active {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+/* Category Legend */
+.category-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.cat-chip {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: 0.2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Table preview container */
+.table-preview-wrap {
+  width: 100%;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  max-height: 220px;
+  border: 1px solid var(--border-strong, #3d4553);
+  border-radius: 6px;
+  background: #181c24;
+}
+
+.preview-table {
+  width: max-content;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+}
+
+.preview-th {
+  padding: 8px 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+/* 8 Header Category Colors matching OpenXML export (NO PURPLE) */
+.th-cat-1 { background-color: #1e293b; color: #ffffff; }
+.th-cat-2 { background-color: #0f766e; color: #ffffff; }
+.th-cat-3 { background-color: #1d4ed8; color: #ffffff; }
+.th-cat-4 { background-color: #047857; color: #ffffff; }
+.th-cat-5 { background-color: #b45309; color: #ffffff; }
+.th-cat-6 { background-color: #b91c1c; color: #ffffff; }
+.th-cat-7 { background-color: #c2410c; color: #ffffff; }
+.th-cat-8 { background-color: #0e7490; color: #ffffff; }
+
+.preview-tr {
+  background: #232833;
+}
+
+.preview-tr.tr-zebra {
+  background: #1c212b;
+}
+
+.preview-td {
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+  color: #e2e8f0;
+}
+
+.td-align-left { text-align: left; }
+.td-align-center { text-align: center; }
+.td-align-right { text-align: right; }
 </style>

@@ -65,7 +65,7 @@ describe("escapeXml", () => {
   });
 });
 
-describe("cell typing", () => {
+describe("cell typing and styling", () => {
   const xml = (records) => sheetXml(["ISDN", "SPEED_DOWNLOAD_AVG", "MEASUREMENT_VALID"], records);
 
   /*
@@ -79,14 +79,14 @@ describe("cell typing", () => {
     expect(out).toContain("02012345678");
   });
 
-  it("writes a number as a number", () => {
+  it("writes a number as a number with right alignment style", () => {
     const out = xml([{ SPEED_DOWNLOAD_AVG: 23400 }]);
-    expect(out).toContain('<c r="B2"><v>23400</v></c>');
+    expect(out).toContain('<c r="B2" s="11"><v>23400</v></c>');
   });
 
-  it("writes a boolean as a boolean", () => {
-    expect(xml([{ MEASUREMENT_VALID: true }])).toContain('<c r="C2" t="b"><v>1</v></c>');
-    expect(xml([{ MEASUREMENT_VALID: false }])).toContain('<c r="C2" t="b"><v>0</v></c>');
+  it("writes a boolean as a boolean with center alignment style", () => {
+    expect(xml([{ MEASUREMENT_VALID: true }])).toContain('<c r="C2" s="10" t="b"><v>1</v></c>');
+    expect(xml([{ MEASUREMENT_VALID: false }])).toContain('<c r="C2" s="10" t="b"><v>0</v></c>');
   });
 
   /*
@@ -95,16 +95,29 @@ describe("cell typing", () => {
   */
   it("writes no cell for a null, and a zero for a measured zero", () => {
     const absent = xml([{ ISDN: null, SPEED_DOWNLOAD_AVG: null }]);
-    expect(absent).toContain('<row r="2"></row>');
+    expect(absent).toContain('<row r="2" ht="20" customHeight="1"></row>');
 
     const measured = xml([{ SPEED_DOWNLOAD_AVG: 0 }]);
-    expect(measured).toContain('<c r="B2"><v>0</v></c>');
+    expect(measured).toContain('<c r="B2" s="11"><v>0</v></c>');
   });
 
-  it("puts the field names in row 1, in order", () => {
+  it("puts the field names in row 1, in order with category header styles", () => {
     const out = xml([]);
-    expect(out).toContain('<c r="A1" t="inlineStr"><is><t xml:space="preserve">ISDN</t></is></c>');
+    expect(out).toContain('<c r="A1" s="2" t="inlineStr"><is><t xml:space="preserve">ISDN</t></is></c>');
     expect(out).toContain("SPEED_DOWNLOAD_AVG");
+  });
+
+  it("defines column widths so headers and data do not get truncated", () => {
+    const out = xml([{ ISDN: "02012345678" }]);
+    expect(out).toContain("<cols>");
+    expect(out).toContain('<col min="1" max="1"');
+    expect(out).toContain('customWidth="1"/>');
+  });
+
+  it("includes freeze panes for the header row and autofilter", () => {
+    const out = xml([{ ISDN: "02012345678" }]);
+    expect(out).toContain('<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>');
+    expect(out).toContain('<autoFilter ref="A1:C2"/>');
   });
 });
 
@@ -141,13 +154,14 @@ describe("workbook", () => {
     LOCATION_LAT: null
   });
 
-  it("contains the five parts a reader needs to open it", () => {
+  it("contains the six parts a reader needs to open and style it", () => {
     const text = new TextDecoder().decode(recordsToXlsx([record()]));
     for (const part of [
       "[Content_Types].xml",
       "_rels/.rels",
       "xl/workbook.xml",
       "xl/_rels/workbook.xml.rels",
+      "xl/styles.xml",
       "xl/worksheets/sheet1.xml"
     ]) {
       expect(text, part).toContain(part);
@@ -155,10 +169,10 @@ describe("workbook", () => {
   });
 
   /* The same columns and the same order as the CSV: one export, two formats. */
-  it("uses the record field order", () => {
+  it("uses the record field order with category styling", () => {
     const text = new TextDecoder().decode(recordsToXlsx([]));
     const first = columnName(0) + "1";
-    expect(text).toContain('<c r="' + first + '" t="inlineStr"><is><t xml:space="preserve">' + RECORD_FIELDS[0]);
+    expect(text).toContain('<c r="' + first + '" s="1" t="inlineStr"><is><t xml:space="preserve">' + RECORD_FIELDS[0]);
   });
 
   it("is byte-identical for the same records", () => {
@@ -167,3 +181,4 @@ describe("workbook", () => {
     expect(Array.from(a)).toEqual(Array.from(b));
   });
 });
+
