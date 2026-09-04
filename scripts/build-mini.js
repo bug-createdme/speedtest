@@ -75,29 +75,112 @@ function getDirSize(dirPath) {
 // ──────────────────────────────────────────
 // Zip utility (Hỗ trợ đa nền tảng Windows/macOS/Linux)
 // ──────────────────────────────────────────
-async function zipDirectory(sourceDir, outputZip) {
+/*
+  Đọc danh sách tên file trong .zip (central directory), không cần thư viện.
+  Dùng để KIỂM TRA gói trước khi giao, xem phần verifyZip bên dưới.
+*/
+function readZipEntries(zipPath) {
+  const buf = fs.readFileSync(zipPath)
+  // End of Central Directory: quét ngược vì cuối file có thể có comment.
+  let eocd = -1
+  for (let i = buf.length - 22; i >= 0 && i >= buf.length - 22 - 0xffff; i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break }
+  }
+  if (eocd < 0) throw new Error('Không đọc được cấu trúc zip (thiếu EOCD)')
+
+  const count = buf.readUInt16LE(eocd + 10)
+  let p = buf.readUInt32LE(eocd + 16)
+  const names = []
+  for (let i = 0; i < count; i++) {
+    if (buf.readUInt32LE(p) !== 0x02014b50) throw new Error('Central directory hỏng')
+    const nameLen = buf.readUInt16LE(p + 28)
+    const extraLen = buf.readUInt16LE(p + 30)
+    const commentLen = buf.readUInt16LE(p + 32)
+    names.push(buf.toString('utf8', p + 46, p + 46 + nameLen))
+    p += 46 + nameLen + extraLen + commentLen
+  }
+  return names
+}
+
+/*
+  Gói hỏng thì phải chết ở đây, không phải trên console của SuperApp.
+
+  Chuẩn ZIP (APPNOTE 4.4.17) bắt buộc dùng "/" ngăn thư mục. Compress-Archive
+  của Windows PowerShell 5.1 ghi "\", nên "assets\index-abc.js" bị nhiều trình
+  giải nén hiểu là TÊN FILE chứ không phải thư mục - gói vẫn tải lên được, vẫn
+  giải nén được, nhưng index.html trỏ "./assets/index-abc.js" thì không còn gì
+  ở đó và mini app trắng trang.
+
+  Đã xảy ra thật: bản 2026-09-04 đầu tiên bị lỗi này mà không ai biết.
+*/
+function verifyZip(zipPath) {
+  let names
   try {
-    // Thử dùng tar trước (có sẵn trên Windows 10/11 và hầu hết Linux/macOS)
-    if (process.platform === 'win32') {
-      execSync(`tar -a -c -f "${outputZip}" -C "${sourceDir}" .`, { stdio: 'pipe' })
-    } else {
-      execSync(`zip -r "${outputZip}" .`, { cwd: sourceDir, stdio: 'pipe' })
-    }
-    return true
-  } catch {
-    // Fallback riêng cho Windows nếu tar gặp vấn đề
-    if (process.platform === 'win32') {
-      try {
-        execSync(`powershell -Command "Compress-Archive -Path '${sourceDir}\\*' -DestinationPath '${outputZip}' -Force"`, { stdio: 'pipe' })
-        return true
-      } catch (psErr) {
-        logError('Không thể tạo file zip bằng PowerShell: ' + psErr.message)
-        return false
-      }
-    }
-    logError('Không tìm thấy lệnh zip hoặc tar để nén thư mục.')
+    names = readZipEntries(zipPath)
+  } catch (err) {
+    logError('Không kiểm tra được file zip: ' + err.message)
     return false
   }
+
+  const backslashed = names.filter((n) => n.includes('\\'))
+  if (backslashed.length > 0) {
+    logError('File zip dùng "\\" thay vì "/" để ngăn thư mục - gói này sẽ trắng trang.')
+    backslashed.slice(0, 5).forEach((n) => logError('   ' + n))
+    logError('Nén lại bằng bsdtar của Windows (System32\\tar.exe), không dùng Compress-Archive.')
+    return false
+  }
+
+  const hasIndex = names.some((n) => n === 'index.html' || n === './index.html')
+  if (!hasIndex) {
+    logError('Không thấy index.html ở gốc file zip. SuperApp Console cần nó nằm ngay gốc.')
+    logError('   Đang có: ' + names.slice(0, 5).join(', '))
+    return false
+  }
+
+  logSuccess(`Kiểm tra gói: ${names.length} mục, đường dẫn hợp lệ, có index.html ở gốc`)
+  return true
+}
+
+/*
+  Nén thư mục thành .zip.
+
+  Trên Windows gọi bsdtar theo ĐƯỜNG DẪN TUYỆT ĐỐI. Gọi trống "tar" thì tuỳ
+  shell: chạy từ Git Bash sẽ trúng GNU tar của Git, vốn không có "-a", lệnh
+  hỏng và trước đây script lặng lẽ rơi xuống Compress-Archive - xem verifyZip.
+*/
+async function zipDirectory(sourceDir, outputZip) {
+  const attempts = []
+
+  if (process.platform === 'win32') {
+    const systemRoot = process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows'
+    const bsdtar = path.join(systemRoot, 'System32', 'tar.exe')
+    if (fs.existsSync(bsdtar)) {
+      attempts.push(['bsdtar', `"${bsdtar}" -a -c -f "${outputZip}" -C "${sourceDir}" .`])
+    }
+  } else {
+    attempts.push(['zip', `zip -r "${outputZip}" .`, sourceDir])
+    attempts.push(['bsdtar', `tar -a -c -f "${outputZip}" -C "${sourceDir}" .`])
+  }
+
+  for (const [name, cmd, cwd] of attempts) {
+    try {
+      if (fs.existsSync(outputZip)) fs.rmSync(outputZip)
+      execSync(cmd, { stdio: 'pipe', cwd })
+      if (fs.existsSync(outputZip)) {
+        logInfo(`Nén bằng ${name}`)
+        return true
+      }
+    } catch (err) {
+      logInfo(`${name} không dùng được: ${String(err.message).split('\n')[0]}`)
+    }
+  }
+
+  logError('Không nén được thư mục thành .zip.')
+  if (process.platform === 'win32') {
+    logError('Cần bsdtar tại %SystemRoot%\\System32\\tar.exe (Windows 10 1803 trở lên).')
+    logError('Compress-Archive KHÔNG dùng được: nó ghi "\\" thay vì "/" và làm hỏng gói.')
+  }
+  return false
 }
 
 // ──────────────────────────────────────────
@@ -164,12 +247,21 @@ async function createZip() {
   log(`Tạo file zip: ${zipName}`)
   const success = await zipDirectory(OUTPUT_DIR, zipPath)
 
-  if (success && fs.existsSync(zipPath)) {
-    const size = fs.statSync(zipPath).size
-    logSuccess(`Zip tạo thành công: ${zipName} (${formatBytes(size)})`)
-    return zipPath
+  if (!success || !fs.existsSync(zipPath)) {
+    logError('Không tạo được file zip.')
+    process.exit(1)
   }
-  return null
+
+  /* Gói hỏng phải dừng ở đây chứ không phải lúc deploy - xem verifyZip. */
+  if (!verifyZip(zipPath)) {
+    logError('Gói không đạt kiểm tra, đã xoá để không ai lỡ tải lên.')
+    fs.rmSync(zipPath, { force: true })
+    process.exit(1)
+  }
+
+  const size = fs.statSync(zipPath).size
+  logSuccess(`Zip tạo thành công: ${zipName} (${formatBytes(size)})`)
+  return zipPath
 }
 
 // ──────────────────────────────────────────
