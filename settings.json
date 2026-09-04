@@ -16,12 +16,11 @@
   "browsing_timeout_ms": 15000,
   "browsing_sites": [
     {
-      "id": "unitel_portal",
-      "name": "Unitel Portal",
-      "url": "https://unitel.com.la/",
-      "fallbackUrl": "https://unitel.com.la/",
+      "id": "unitel_umoney",
+      "name": "U-Money (Unitel)",
+      "url": "https://umoney.com.la/",
+      "fallbackUrl": "https://vientianetimes.org.la/",
       "enabled": true,
-      "render": false,
       "timeout": 15000,
       "weight": 1
     },
@@ -29,7 +28,7 @@
       "id": "news_media",
       "name": "Vientiane Times",
       "url": "https://vientianetimes.org.la/",
-      "fallbackUrl": "https://unitel.com.la/",
+      "fallbackUrl": "https://kpl.gov.la/",
       "enabled": true,
       "timeout": 15000,
       "weight": 1
@@ -38,7 +37,7 @@
       "id": "lao_wikipedia",
       "name": "Lao Wikipedia",
       "url": "https://lo.wikipedia.org/wiki/%E0%BB%9C%E0%BB%89%E0%BA%B2%E0%BA%AB%E0%BA%BC%E0%BA%B1%E0%BA%81",
-      "fallbackUrl": "https://unitel.com.la/",
+      "fallbackUrl": "https://www.wikipedia.org/",
       "enabled": true,
       "timeout": 15000,
       "weight": 1
@@ -56,7 +55,7 @@
       "id": "banking",
       "name": "BCEL",
       "url": "https://www.bcel.com.la/",
-      "fallbackUrl": "https://vientianetimes.org.la/",
+      "fallbackUrl": "https://umoney.com.la/",
       "enabled": true,
       "timeout": 15000,
       "weight": 1

@@ -91,19 +91,23 @@ const RENDER_VIEWPORT_WIDTH = 1024;
   the worst of the two errors: unitel.com.la refuses, and was scoring a perfect
   100 on a 0.2s "page load" that was really the refusal arriving.
 
-  So `render: false` marks the sites that cannot be shown. They are still
-  measured, by network probe, and the screen says which measurement it is
-  rather than showing an empty white frame. Verify a new site by framing it and
-  looking, not by trusting the page's own report.
+  So the list below holds only sites confirmed to render, each checked by
+  framing it and looking at what came back - never by asking the page, which
+  cannot know. Check any site added here the same way.
+
+  A site can start refusing at any time, silently, and this code will not
+  notice. `render: false` is the escape hatch for when one does: it routes that
+  site to the network probe and makes the screen say which measurement it is
+  showing, instead of an empty white panel timed to the refusal. Nothing sets
+  it today because nothing in the list needs it.
 */
 export const DEFAULT_BROWSING_SITES = [
   {
-    id: "unitel_portal",
-    name: "Unitel Portal",
-    url: "https://unitel.com.la/",
+    id: "unitel_umoney",
+    name: "U-Money (Unitel)",
+    url: "https://umoney.com.la/",
     fallbackUrl: "browse-sample.html",
     enabled: true,
-    render: false,
     timeout: DEFAULT_BROWSING_TIMEOUT_MS,
     weight: 1
   },

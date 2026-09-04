@@ -10,8 +10,26 @@ import {
 describe("Browsing Service", () => {
   it("has comprehensive default targets", () => {
     expect(DEFAULT_BROWSING_TARGETS.length).toBeGreaterThanOrEqual(3);
-    const names = DEFAULT_BROWSING_TARGETS.map((t) => t.name);
-    expect(names).toContain("Unitel Portal");
+    for (const target of DEFAULT_BROWSING_TARGETS) {
+      expect(target.id).toBeTruthy();
+      expect(target.name).toBeTruthy();
+      expect(target.url).toMatch(/^https:\/\//);
+      expect(target.timeout).toBeGreaterThan(0);
+    }
+    const ids = DEFAULT_BROWSING_TARGETS.map((t) => t.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("browses pages, not static assets", () => {
+    /*
+      A minified vue.js and a logo .png were in this list. Both measured a
+      single transfer rather than a page load, and in the browser panel one
+      rendered as a wall of code and the other as a bare image - neither is
+      what "web browsing" means to anyone reading the score.
+    */
+    for (const target of DEFAULT_BROWSING_TARGETS) {
+      expect(target.url).not.toMatch(/\.(js|css|png|jpe?g|gif|svg|webp|woff2?|mp4|ico)(\?|$)/i);
+    }
   });
 
   describe("runBrowsingTest execution", () => {
