@@ -62,29 +62,29 @@
     }
   ],
   "video_enabled": true,
-  "video_url": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/friday.mp4",
+  "video_url": "video-sample.mp4",
   "video_play_seconds": 5,
   "video_timeout": 20000,
   "video_test_qualities": [
     {
-      "quality": "480p",
-      "height": 480,
-      "url": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/friday.mp4",
+      "quality": "360p",
+      "height": 360,
+      "url": "video-360p.mp4",
       "fallbackUrl": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/friday.mp4",
       "duration": 4500
     },
     {
-      "quality": "540p",
-      "height": 540,
-      "url": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-      "fallbackUrl": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/friday.mp4",
+      "quality": "720p",
+      "height": 720,
+      "url": "video-720p.mp4",
+      "fallbackUrl": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
       "duration": 4500
     },
     {
       "quality": "1080p",
       "height": 1080,
-      "url": "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4",
-      "fallbackUrl": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+      "url": "video-1080p.mp4",
+      "fallbackUrl": "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4",
       "duration": 4500
     }
   ],

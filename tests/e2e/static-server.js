@@ -36,6 +36,11 @@ const CONTENT_TYPES = {
   '.ttf': 'font/ttf',
   '.txt': 'text/plain; charset=utf-8',
   '.md': 'text/markdown; charset=utf-8',
+  // The video stage samples. Without these a <video> is handed
+  // application/octet-stream and only plays if the browser happens to sniff
+  // the container, which is not something to leave a test resting on.
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
 };
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 

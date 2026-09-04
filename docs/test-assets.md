@@ -61,7 +61,32 @@ source):
 | File | Size | Notes |
 |---|---|---|
 | `browse-sample.html` | 1,048,576 B | A real page padded with random data. Twice the 500,000-byte threshold, so "reached 500 KB" and "finished the file" stay distinct events. |
-| `video-sample.mp4` | ~1–2 MB | Only generated where `ffmpeg` exists. The script prints the exact command otherwise. |
+| `video-sample.mp4` | ~4 MB | 720p, 10 s. The single-URL fallback (`video_url`). |
+| `video-360p.mp4` | ~730 KB | 360p, 6 s, ~1 Mbps. |
+| `video-720p.mp4` | ~2.3 MB | 720p, 6 s, ~3 Mbps. |
+| `video-1080p.mp4` | ~4.5 MB | 1080p, 6 s, ~6 Mbps. |
+
+The three `video-<height>p.mp4` files are the ladder the Video stage steps
+through, one tier at a time. All are generated only where `ffmpeg` is on PATH
+(or Docker is available); the script prints the exact command otherwise.
+
+### The bitrate is the measurement
+
+Each tier is encoded at the bitrate that resolution really costs — ~1, ~3 and
+~6 Mbps — and held there with `minrate = maxrate = b:v`. That is the whole
+point of the tier: whether the link can *sustain* a 1080p stream.
+
+These were previously CRF-encoded `testsrc` colour bars, which carry so little
+detail that x264 met the requested quality far below a realistic bitrate: the
+"1080p" tier came out at **370 kbps** and the "360p" one at **176 kbps**. A 370
+kbps clip plays smoothly over almost anything, so the stage reported *highest
+stable quality: 1080p* for links that could not carry a real 1080p stream —
+a wrong number rather than a missing one. The source now carries grain so the
+encoder genuinely needs the bits, for the same reason the browse sample is
+padded with incompressible data.
+
+A full run therefore moves roughly 6–7 MB of video. That is negligible beside
+the download stage, which moves far more, and it is what a video test costs.
 
 The video must be **faststart** (moov atom at the front). Without it playback
 cannot begin until the whole clip has arrived, and every run reads as one long
@@ -78,11 +103,19 @@ CORS middleware is applied to the whole router, static files included
 in the assets directory — no endpoint required.
 
 ```bash
-cp test-assets/browse-sample.html test-assets/video-sample.mp4 <assets_path>/
+cp test-assets/browse-sample.html test-assets/video-*.mp4 <assets_path>/
 ```
 
 Go's `http.FileServer` does not compress, which is what the measurement needs
 (see the warning below). Range requests are supported, which the video needs.
+
+nginx has to route them too. The location in
+[docker/nginx-speedtest-endpoints.conf](../docker/nginx-speedtest-endpoints.conf)
+matches `browse-sample.html`, `video-sample.mp4` and `video-<height>p.mp4`;
+anything not in that pattern falls through to the 404 below it and the stage
+reports Error however correctly the file was copied. The tier files were missing
+from it while the script was already producing them, so copying the assets
+across was not enough to make the ladder work.
 
 ### PHP backend
 
@@ -92,7 +125,7 @@ and disables compression.
 
 ```bash
 mkdir -p backend/assets
-cp test-assets/browse-sample.html test-assets/video-sample.mp4 backend/assets/
+cp test-assets/browse-sample.html test-assets/video-*.mp4 backend/assets/
 ```
 
 URLs become `…/backend/asset.php?f=browse-sample.html` and
@@ -115,7 +148,11 @@ behaviour with `ALLOWED_ORIGINS=https://app.unitel.com.la`:
 
 ## Configuring
 
-In `settings.json`, using absolute HTTPS URLs on the test server:
+In `settings.json`. A video URL that is not absolute is resolved against the
+test point the run actually measured against (`resolveAssetUrl` in
+[streaming.js](../ui/src/measurement/streaming.js)), so the samples are fetched
+from the server under test rather than from wherever the page happens to be
+hosted — the same arrangement the browse stage has:
 
 ```json
 {
@@ -123,11 +160,29 @@ In `settings.json`, using absolute HTTPS URLs on the test server:
   "browse_target_bytes": 500000,
   "browse_budget": 4000,
 
-  "video_url": "https://<test-server>/video-sample.mp4",
-  "video_play_seconds": 10,
-  "video_timeout": 30000
+  "video_url": "video-sample.mp4",
+  "video_play_seconds": 5,
+  "video_timeout": 20000,
+  "video_settle_ms": 900,
+  "video_test_qualities": [
+    { "quality": "360p",  "height": 360,  "url": "video-360p.mp4",  "fallbackUrl": "https://…", "duration": 4500 },
+    { "quality": "720p",  "height": 720,  "url": "video-720p.mp4",  "fallbackUrl": "https://…", "duration": 4500 },
+    { "quality": "1080p", "height": 1080, "url": "video-1080p.mp4", "fallbackUrl": "https://…", "duration": 4500 }
+  ]
 }
 ```
+
+`quality` has to be the height the file actually decodes to — it is what the
+result screen reports as the quality reached, and what the per-tier table shows
+beside the resolution measured off the player. Two tiers once claimed 360p and
+720p while pointing at 640x480 and 960x540 files, so every run reported a
+highest stable quality no tier had produced.
+
+`fallbackUrl` is played once if the tier's own clip cannot be opened — a file
+not deployed yet, or a codec this device will not decode. It is not retried on a
+timeout: a timeout is the network being slow, which *is* the measurement.
+`video_settle_ms` is how long a finished tier's numbers stay on screen before
+the next starts; presentational only, and excluded from every reported number.
 
 Both URL keys ship empty on purpose: unset, the stages Skip rather than invent a
 target. `browse_target_bytes` and `browse_budget` are the partner's own
@@ -137,7 +192,7 @@ better.
 
 ---
 
-## ⚠ Turn compression off for these two files
+## ⚠ Turn compression off for these files
 
 The Web stage counts bytes **after** the transport has decompressed them. If the
 response is gzipped, the counter reports more bytes than crossed the link and
@@ -149,7 +204,7 @@ Measured on the generated page: gzip -9 takes it from 1,048,576 to 789,819 bytes
 
 Both backends serve these uncompressed already. The risk is a CDN or reverse
 proxy added in front of the test server: compression must be disabled for these
-two files, or the Web indicator overstates every measurement it takes.
+files, or the Web indicator overstates every measurement it takes.
 
 ---
 

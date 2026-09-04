@@ -128,24 +128,6 @@ function haveDocker() {
 }
 
 /*
-  The encoder arguments, in one place, because they are the same whether ffmpeg
-  runs on this machine or inside a container - and because two copies would
-  eventually differ in the flag that matters (-movflags +faststart).
-
-  A synthetic clip is fine and a real one is not required: the stage measures
-  time-to-first-frame and stalls, which are properties of the player and the
-  link rather than of what is on screen.
-*/
-function ffmpegArgs(outPath) {
-  return (
-    "-y -f lavfi -i testsrc=size=1280x720:rate=30:duration=" + VIDEO_SECONDS +
-    " -f lavfi -i sine=frequency=440:duration=" + VIDEO_SECONDS +
-    " -c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p -c:a aac -b:a 128k" +
-    " -movflags +faststart " + outPath
-  );
-}
-
-/*
   Check the one property that cannot be seen by looking at the file size: the
   moov atom has to come before mdat. Without it a player cannot start until the
   whole clip has arrived, and every measurement reads as one long buffering
@@ -172,7 +154,10 @@ function checkFaststart(file) {
 function reportVideo(videoPath) {
   const size = fs.statSync(videoPath).size;
   const fast = checkFaststart(videoPath);
-  log(VIDEO_NAME + "  " + size.toLocaleString() + " bytes");
+  /* The file just written, not VIDEO_NAME: this runs once per quality, and
+     naming them all "video-sample.mp4" made the faststart line - the one thing
+     here worth reading - unattributable to the file it checked. */
+  log(path.basename(videoPath) + "  " + size.toLocaleString() + " bytes");
   if (fast) {
     log("  faststart verified: moov before mdat");
   } else {
@@ -185,18 +170,46 @@ function reportVideo(videoPath) {
   }
 }
 
+/*
+  The quality ladder, by the only property that decides whether a tier measures
+  anything: the bitrate it demands.
+
+  These were CRF-encoded testsrc colour bars, and that made every tier useless.
+  Synthetic bars carry almost no detail, so x264 hit the requested quality at a
+  fraction of the bits real footage needs: the "1080p" tier came out at 370
+  kbps and the "360p" one at 176. A 370 kbps clip plays smoothly over almost
+  any connection, so the stage would report "highest stable quality: 1080p" for
+  a link that could not carry a real 1080p stream for a second - a wrong number
+  rather than a missing one.
+
+  So each tier is now pinned to the bitrate the real thing costs, taken from
+  the streaming ladders these resolutions are actually delivered at, and the
+  encoder is held to it with minrate=maxrate=b:v. What the clip shows still
+  does not matter - the stage measures time-to-first-frame and stalls, which
+  are properties of the player and the link - but how many bits it takes to
+  deliver is the whole measurement.
+
+  Noise is what makes the number honest. Told to spend 6 Mbps on colour bars,
+  x264 pads with near-empty frames that a compressing proxy could squeeze back
+  out; grain gives it detail that genuinely costs that much to encode. Same
+  reasoning as the incompressible padding in the browse sample above.
+*/
 const QUALITIES = [
-  { name: "video-sample.mp4", size: "1280x720", crf: 23, duration: VIDEO_SECONDS },
-  { name: "video-360p.mp4", size: "640x360", crf: 28, duration: 6 },
-  { name: "video-720p.mp4", size: "1280x720", crf: 23, duration: 6 },
-  { name: "video-1080p.mp4", size: "1920x1080", crf: 20, duration: 6 }
+  { name: "video-sample.mp4", size: "1280x720", bitrate: "3000k", duration: VIDEO_SECONDS },
+  { name: "video-360p.mp4", size: "640x360", bitrate: "800k", duration: 6 },
+  { name: "video-720p.mp4", size: "1280x720", bitrate: "3000k", duration: 6 },
+  { name: "video-1080p.mp4", size: "1920x1080", bitrate: "6000k", duration: 6 }
 ];
 
 function ffmpegArgsFor(q, outPath) {
+  const bufsize = parseInt(q.bitrate, 10) * 2 + "k";
   return (
-    "-y -f lavfi -i testsrc=size=" + q.size + ":rate=30:duration=" + q.duration +
+    "-y -f lavfi -i testsrc2=size=" + q.size + ":rate=30:duration=" + q.duration +
     " -f lavfi -i sine=frequency=440:duration=" + q.duration +
-    " -c:v libx264 -preset medium -crf " + q.crf + " -pix_fmt yuv420p -c:a aac -b:a 128k" +
+    ' -filter_complex "[0:v]noise=alls=28:allf=t+u[v]" -map "[v]" -map 1:a' +
+    " -c:v libx264 -preset veryfast -b:v " + q.bitrate +
+    " -minrate " + q.bitrate + " -maxrate " + q.bitrate + " -bufsize " + bufsize +
+    " -pix_fmt yuv420p -c:a aac -b:a 128k" +
     " -movflags +faststart " + outPath
   );
 }

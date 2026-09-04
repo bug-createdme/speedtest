@@ -281,6 +281,22 @@ async function fetchContentLength(url, signal) {
   }
 }
 
+/**
+ * Resolves a tier URL against the server the run is measuring.
+ *
+ * A tier configured as "video-720p.mp4" means "the 720p sample on whichever
+ * test point this run picked", not "on whichever host happens to be serving
+ * the page". Absolute URLs are left alone, so a deployment can still point a
+ * tier somewhere else entirely. Same arrangement runBrowsingTest has for its
+ * site list.
+ */
+function resolveAssetUrl(url, serverUrl) {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url) || url.startsWith("//") || url.startsWith("data:")) return url;
+  if (!serverUrl) return url;
+  return serverUrl.replace(/\/+$/, "") + "/" + url.replace(/^\/+/, "");
+}
+
 /** Seconds of media sitting in the buffer, across all buffered ranges. */
 function bufferedSeconds(video) {
   try {
@@ -680,6 +696,7 @@ function waitAbortable(ms, signal) {
  * @param {object} options
  * @param {string} [options.url]            Single video URL fallback
  * @param {Array}  [options.qualities]      Tier list [{ quality, height, url, duration }]
+ * @param {string} [options.serverUrl]      Base URL of the test point, for relative tier URLs
  * @param {number} [options.playSeconds]    Seconds of video per tier
  * @param {number} [options.timeoutMs]      Per-tier timeout in ms
  * @param {number} [options.settleMs]       How long a finished tier stays on screen
@@ -781,7 +798,10 @@ export async function runStreamingTest(options = {}) {
       onProgress: (frac, liveStats) => emit(i, frac, liveStats)
     };
 
-    let clipResult = await playVideoClip({ ...clipOptions, url: item.url || options.url });
+    const primaryUrl = resolveAssetUrl(item.url || options.url, options.serverUrl);
+    const fallbackUrl = resolveAssetUrl(item.fallbackUrl, options.serverUrl);
+
+    let clipResult = await playVideoClip({ ...clipOptions, url: primaryUrl });
 
     /*
       The clip could not be opened, and the tier declares somewhere else to get
@@ -797,8 +817,8 @@ export async function runStreamingTest(options = {}) {
     const openFailed =
       clipResult.status === STREAM_STATUS.ERROR ||
       clipResult.measuredBy === MEASURED_BY.PROBE;
-    if (openFailed && item.fallbackUrl && item.fallbackUrl !== item.url && !(signal && signal.aborted)) {
-      const retry = await playVideoClip({ ...clipOptions, url: item.fallbackUrl });
+    if (openFailed && fallbackUrl && fallbackUrl !== primaryUrl && !(signal && signal.aborted)) {
+      const retry = await playVideoClip({ ...clipOptions, url: fallbackUrl });
       if (retry.rendered) {
         clipResult = { ...retry, usedFallback: true };
       }

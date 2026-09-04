@@ -878,6 +878,9 @@ async function runVideoStage() {
     const result = await runStreamingTest({
       url: uiSettings.video_url,
       qualities: hasQualities ? uiSettings.video_test_qualities : undefined,
+      /* So a tier configured as "video-720p.mp4" is fetched from the test point
+         this run measured against, not from wherever the page is hosted. */
+      serverUrl: test.usedServer ? test.usedServer.server : "",
       playSeconds: Number(uiSettings.video_play_seconds) || 4,
       timeoutMs: Number(uiSettings.video_timeout) || 15000,
       settleMs: uiSettings.video_settle_ms,
