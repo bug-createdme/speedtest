@@ -41,6 +41,53 @@ const log = (m) => console.log("\x1b[36m[package]\x1b[0m " + m);
 const warn = (m) => console.log("\x1b[33m[package] WARN " + m + "\x1b[0m");
 const ok = (m) => console.log("\x1b[32m[package] OK\x1b[0m " + m);
 
+/*
+  Documentation that goes in the bundle: the two runbooks plus what they refer
+  to. Kept small on purpose - this is what someone on the server needs to
+  finish a deploy, not the whole design history.
+*/
+const BUNDLED_DOCS = [
+  "deploy-backend.md",
+  "deploy-update.md",
+  "test-assets.md",
+  /* Reached from deploy-backend.md, and then from each other. All small
+     markdown - the closure costs ~55 KB in a 113 MB bundle. */
+  "architecture.md",
+  "bridge.md",
+  "overhead-calibration.md"
+];
+
+/**
+ * Every relative .md link in the staged docs has to resolve to a staged doc.
+ *
+ * Throws rather than warns: a dead link is only discovered by someone reading
+ * it on a server with no repository to fall back to, which is the worst place
+ * to find out. Adding a cross-reference and forgetting BUNDLED_DOCS should stop
+ * the packaging here instead.
+ */
+function checkDocLinks() {
+  const dir = path.join(STAGE, "docs");
+  const staged = new Set(fs.readdirSync(dir));
+  const broken = [];
+  for (const doc of staged) {
+    const body = fs.readFileSync(path.join(dir, doc), "utf8");
+    for (const [, target] of body.matchAll(/\]\(([^)]+)\)/g)) {
+      if (/^(https?:|#|mailto:)/i.test(target)) continue;
+      const file = target.split("#")[0];
+      if (file === "" || !file.endsWith(".md")) continue;
+      if (!staged.has(path.posix.basename(file))) broken.push(doc + " -> " + file);
+    }
+  }
+  if (broken.length > 0) {
+    throw new Error(
+      "bundled docs link to files the bundle does not contain:\n  " +
+        broken.join("\n  ") +
+        "\nAdd them to BUNDLED_DOCS, or drop the link."
+    );
+  }
+  ok("docs: " + staged.size + " files, no dead links");
+}
+
 const hostOf = (u) => {
   try {
     return new URL(u).host;
@@ -366,7 +413,19 @@ function main() {
      MOBILE_OPERATOR - the carrier the whole report groups by - is null on every
      record. */
   copy("backend/country_asn.mmdb");
-  copy("docs/deploy-backend.md");
+  /*
+    The runbooks, and everything they link to.
+
+    deploy-backend.md alone shipped with two dead links in it - it points at
+    test-assets.md for what the Web and Video samples are, and at
+    architecture.md §3 for why the server has to be neutral. Whoever reads it
+    is on the server, with no repository to go and look in.
+
+    checkDocLinks below fails the packaging if this list falls behind the
+    cross-references again.
+  */
+  for (const doc of BUNDLED_DOCS) copy("docs/" + doc);
+  checkDocLinks();
 
   /*
     Shipped as .example, not as .env.
