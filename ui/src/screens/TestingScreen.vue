@@ -65,6 +65,49 @@ const showGauge = computed(
   () => test.stage === STAGE.DOWNLOAD || test.stage === STAGE.UPLOAD
 );
 
+/*
+  The URL ledger under the rendered page: every site the run will visit, listed
+  before the first one loads, each row filling in with its own load time and
+  rating as the run reaches it.
+*/
+const browseRows = computed(() => {
+  const done = new Map((test.browsingSitesList || []).map((s) => [s.id, s]));
+  const planned =
+    test.browsingPlannedSites && test.browsingPlannedSites.length
+      ? test.browsingPlannedSites
+      : test.browsingSitesList || [];
+
+  return planned.map((site, index) => {
+    const result = done.get(site.id) || null;
+    return {
+      key: site.id || site.url || index,
+      url: site.url,
+      name: site.name,
+      result,
+      /* Reached, but no verdict yet - the row that is loading right now. */
+      active: index === test.browsingCurrentIndex && !result,
+      pending: index > test.browsingCurrentIndex,
+      time: result
+        ? result.success
+          ? (result.loadTimeMs / 1000).toFixed(2) + t("unit.s")
+          : result.httpStatus
+        : "–",
+      rating: result && result.success ? result.rating + "%" : "–"
+    };
+  });
+});
+
+/* Elapsed on the page on screen right now, not the run average. */
+const currentSiteSeconds = computed(() =>
+  ((test.browsingCurrentElapsedMs || 0) / 1000).toFixed(2)
+);
+
+/* The thin bar under the address bar tracks the current page, not the run -
+   the footer bar already shows the run. */
+const browseSiteBarWidth = computed(
+  () => Math.min(100, Math.max(0, test.browsingCurrentPercent || 0)) + "%"
+);
+
 const streamingStatusText = computed(() => {
   if (!test.streamingLiveStats) return "Đang kết nối video...";
   if (test.streamingLiveStats.status === "buffering") return "Đang chờ đệm...";
@@ -136,7 +179,7 @@ const settled = computed(() =>
 
         <p class="sr-only" role="status" aria-live="polite">{{ headline }}</p>
 
-        <!-- ── STAGE: WEB BROWSING VISUAL VIEWER ────────────────────────── -->
+        <!-- ── STAGE: WEB BROWSING - the page under test, rendered live ─── -->
         <div v-if="test.stage === STAGE.BROWSE" class="stage-view-card web-preview-card">
           <div class="browser-mockup">
             <div class="browser-header">
@@ -150,48 +193,52 @@ const settled = computed(() =>
                   <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
                   <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                 </svg>
-                <span class="b-url">{{ test.browsingCurrentUrl || 'https://unitel.com.la/' }}</span>
+                <span class="b-url">{{ test.browsingCurrentUrl || '—' }}</span>
               </div>
-              <span class="browser-status-tag">{{ test.browsingCurrentStatus || 'Đang mở' }}</span>
+              <span class="browser-status-tag">{{ test.browsingCurrentStatus || t('browse.opening') }}</span>
             </div>
 
             <div class="browser-progress-track">
-              <div class="browser-progress-fill" :style="{ width: ((test.browsingProgress || 0) * 100) + '%' }"></div>
+              <div class="browser-progress-fill" :style="{ width: browseSiteBarWidth }"></div>
             </div>
 
-            <div class="browser-viewport">
-              <iframe
-                v-if="test.browsingCurrentUrl"
-                :key="test.browsingCurrentUrl"
-                :src="test.browsingCurrentUrl"
-                class="browser-iframe"
-                sandbox="allow-scripts allow-same-origin"
-                loading="eager"
-              ></iframe>
-              <div class="browser-viewport-overlay">
-                <div class="viewport-card">
-                  <div class="viewport-icon">🌐</div>
-                  <div class="viewport-title">{{ test.browsingCurrentSite || 'Đang mở trang web' }}</div>
-                  <div class="viewport-time">
-                    <span class="v-time-number">{{ test.browseTime ? (test.browseTime / 1000).toFixed(2) : "0.00" }}</span>
-                    <span class="v-time-unit">s</span>
-                  </div>
-                  <div class="viewport-hint">Đang đo tốc độ phản hồi và tải nội dung</div>
-                </div>
-              </div>
+            <!--
+              The page itself. browsing.js puts the iframe in here and times it
+              to its load event, so what is on screen is what was measured.
+            -->
+            <div id="browse-testing-container" class="browser-viewport"></div>
+
+            <div class="browser-caption">
+              <span class="caption-name">{{ test.browsingCurrentSite || t('status.measuringBrowse') }}</span>
+              <span class="caption-time">
+                <span class="caption-time-number">{{ currentSiteSeconds }}</span>
+                <span class="caption-time-unit">{{ t('unit.s') }}</span>
+              </span>
             </div>
           </div>
 
-          <div v-if="test.browsingSitesList && test.browsingSitesList.length" class="browsing-sites-strip">
+          <div v-if="browseRows.length" class="browse-ledger">
+            <div class="ledger-head">
+              <span class="ledger-col-url">{{ t('browse.browsedUrls') }}</span>
+              <span class="ledger-col-time">{{ t('browse.time') }}</span>
+              <span class="ledger-col-rate">{{ t('browse.rating') }}</span>
+            </div>
             <div
-              v-for="s in test.browsingSitesList"
-              :key="s.id"
-              class="strip-pill"
-              :class="{ 'strip-success': s.success, 'strip-error': !s.success }"
+              v-for="row in browseRows"
+              :key="row.key"
+              class="ledger-row"
+              :class="{
+                'ledger-active': row.active,
+                'ledger-pending': row.pending,
+                'ledger-failed': row.result && !row.result.success
+              }"
             >
-              <span class="strip-pill-dot"></span>
-              <span class="strip-pill-name">{{ s.name }}</span>
-              <span class="strip-pill-val">{{ s.success ? (s.loadTimeMs / 1000).toFixed(2) + 's' : s.httpStatus }}</span>
+              <span class="ledger-col-url" :title="row.url">{{ row.url }}</span>
+              <span class="ledger-col-time">
+                <span v-if="row.active" class="ledger-spinner" aria-hidden="true"></span>
+                <template v-else>{{ row.time }}</template>
+              </span>
+              <span class="ledger-col-rate">{{ row.rating }}</span>
             </div>
           </div>
         </div>
@@ -497,124 +544,155 @@ const settled = computed(() =>
   transition: width 0.25s ease-out;
 }
 
+/*
+  The page under test, shown at full brightness. It used to sit at 25% opacity
+  behind a card that covered it, which meant the screen never actually showed
+  what was being measured - the thing this stage exists to show.
+
+  White, because that is what an empty page looks like; a dark box behind a
+  loading page reads as a broken one.
+*/
 .browser-viewport {
   position: relative;
   width: 100%;
-  height: 180px;
-  background: #0d0e11;
+  height: 300px;
+  background: #fff;
   overflow: hidden;
 }
 
-.browser-iframe {
-  width: 100%;
-  height: 100%;
-  border: none;
-  opacity: 0.25;
-  filter: grayscale(0.5);
-  pointer-events: none;
+/* Sizing and the fit-to-panel scale are set inline by browsing.js, which is
+   the only place that knows the panel's measured size. */
+.browser-viewport :deep(iframe) {
+  border: 0;
+  display: block;
 }
 
-.browser-viewport-overlay {
-  position: absolute;
-  inset: 0;
+.browser-caption {
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: var(--sp-3);
-  background: radial-gradient(circle at center, rgba(24, 25, 29, 0.7) 0%, rgba(13, 14, 17, 0.95) 100%);
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 7px 12px;
+  background: var(--surface, #121316);
+  border-top: 1px solid var(--border, #262830);
 }
 
-.viewport-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 4px;
-}
-
-.viewport-icon {
-  font-size: 1.8rem;
-  margin-bottom: 2px;
-}
-
-.viewport-title {
-  font-size: 0.95rem;
+.caption-name {
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--text, #fff);
-}
-
-.viewport-time {
-  display: flex;
-  align-items: baseline;
-  gap: 2px;
-  color: var(--brand-primary, #ff7a00);
-}
-
-.v-time-number {
-  font-family: var(--font-numeric);
-  font-size: 1.7rem;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-
-.v-time-unit {
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.viewport-hint {
-  font-size: 0.74rem;
-  color: var(--text-muted, #727682);
-}
-
-.browsing-sites-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  width: 100%;
-}
-
-.strip-pill {
-  flex: 1 1 auto;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  background: var(--surface, #18191d);
-  border: 1px solid var(--border, #2b2e38);
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 0.72rem;
-  min-width: 0;
-}
-
-.strip-pill-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-muted, #727682);
-  flex-shrink: 0;
-}
-
-.strip-success .strip-pill-dot {
-  background: #27c93f;
-}
-
-.strip-error .strip-pill-dot {
-  background: #ff5f56;
-}
-
-.strip-pill-name {
-  color: var(--text-secondary, #a0a4b0);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.strip-pill-val {
-  margin-left: auto;
+.caption-time {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  color: var(--brand-primary, #ff7a00);
+  flex-shrink: 0;
+}
+
+.caption-time-number {
   font-family: var(--font-numeric);
+  font-size: 1.15rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.caption-time-unit {
+  font-size: 0.78rem;
   font-weight: 600;
+}
+
+/* ── URL ledger: every site, its load time, its rating ─────────────── */
+.browse-ledger {
+  width: 100%;
+  border: 1px solid var(--border, #2b2e38);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface, #18191d);
+}
+
+.ledger-head,
+.ledger-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4.2rem 3.2rem;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 0.72rem;
+}
+
+.ledger-head {
+  background: rgba(255, 122, 0, 0.12);
+  color: var(--brand-primary, #ff7a00);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.ledger-row {
+  border-top: 1px solid var(--border, #262830);
+  color: var(--text-secondary, #a0a4b0);
+}
+
+.ledger-row.ledger-active {
+  background: rgba(255, 122, 0, 0.07);
   color: var(--text, #fff);
+}
+
+.ledger-row.ledger-pending {
+  opacity: 0.5;
+}
+
+.ledger-row.ledger-failed .ledger-col-time,
+.ledger-row.ledger-failed .ledger-col-rate {
+  color: #ff5f56;
+}
+
+.ledger-col-url {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ledger-col-time,
+.ledger-col-rate {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+  color: var(--text, #fff);
+}
+
+.ledger-head .ledger-col-time,
+.ledger-head .ledger-col-rate {
+  font-family: inherit;
+  color: inherit;
+}
+
+.ledger-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(255, 122, 0, 0.25);
+  border-top-color: var(--brand-primary, #ff7a00);
+  border-radius: 50%;
+  animation: ledger-spin 0.7s linear infinite;
+  vertical-align: -1px;
+}
+
+@keyframes ledger-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ledger-spinner {
+    animation-duration: 2.4s;
+  }
 }
 
 /* ── Live Video Streaming Player ───────────────────────────────────── */

@@ -6,7 +6,11 @@ import { compareNetwork, networkSnapshot, watchNetwork } from "../context/networ
 import { fetchLocation, startLocationTracker, stopLocationTracker, withArea } from "../context/location.js";
 import { getOperatorFromIp, getOperatorFromIsdn, parseIpResponse } from "../context/operator.js";
 import { runStreamingTest } from "../measurement/streaming.js";
-import { runBrowsingTest } from "../measurement/browsing.js";
+import {
+  DEFAULT_BROWSING_DWELL_MS,
+  DEFAULT_BROWSING_TIMEOUT_MS,
+  runBrowsingTest
+} from "../measurement/browsing.js";
 import { calculateOverallNetworkScore } from "../measurement/qoe.js";
 import { initBridge, isdn } from "../bridge/windvane.js";
 
@@ -169,6 +173,13 @@ export const test = reactive({
   browsingCurrentStatus: "",
   browsingSitesList: [],
   browsingProgress: 0,
+  /* Every URL the run will visit, known before the first one loads, so the
+     screen can show the whole list and fill it in as it goes. */
+  browsingPlannedSites: [],
+  browsingCurrentIndex: -1,
+  browsingCurrentPercent: 0,
+  browsingCurrentElapsedMs: 0,
+  browsingPhase: "",
 
   /* Video Streaming QoE */
   streamingResult: null,
@@ -246,6 +257,8 @@ const UI_SETTING_KEYS = [
   "area_table_url",
   "browsing_enabled",
   "browsing_sites",
+  "browsing_dwell_ms",
+  "browsing_timeout_ms",
   "video_enabled",
   "video_url",
   "video_play_seconds",
@@ -269,6 +282,15 @@ export const uiSettings = {
   area_table_url: "",
   browsing_enabled: true,
   browsing_sites: [],
+  /*
+    How long each page stays on screen after it has loaded. Presentational
+    only - excluded from every reported number - but at 0 a fast connection
+    flashes the whole site list past before anyone can read it.
+  */
+  browsing_dwell_ms: DEFAULT_BROWSING_DWELL_MS,
+  /* Per-site ceiling for sites that do not set their own. A rendered page
+     needs far longer than the response probe it replaced. */
+  browsing_timeout_ms: DEFAULT_BROWSING_TIMEOUT_MS,
   video_enabled: true,
   video_url: "",
   video_play_seconds: 4,
@@ -373,6 +395,11 @@ function resetRun() {
   test.browsingCurrentStatus = "";
   test.browsingSitesList = [];
   test.browsingProgress = 0;
+  test.browsingPlannedSites = [];
+  test.browsingCurrentIndex = -1;
+  test.browsingCurrentPercent = 0;
+  test.browsingCurrentElapsedMs = 0;
+  test.browsingPhase = "";
   test.streamingResult = null;
   test.streamingCurrentQuality = "";
   test.streamingProgress = 0;
@@ -772,6 +799,8 @@ async function runBrowsingStage() {
     const result = await runBrowsingTest({
       sites,
       serverUrl,
+      dwellMs: uiSettings.browsing_dwell_ms,
+      timeoutMs: uiSettings.browsing_timeout_ms,
       signal: browsingAbort.signal,
       onProgress: (info) => {
         test.browsingProgress = info.progress || 0;
@@ -780,6 +809,11 @@ async function runBrowsingStage() {
         test.browsingCurrentUrl = info.currentUrl || "";
         test.browsingCurrentStatus = info.currentStatus || "";
         test.browsingSitesList = info.sites || [];
+        test.browsingPlannedSites = info.plannedSites || [];
+        test.browsingCurrentIndex = Number.isInteger(info.currentIndex) ? info.currentIndex : -1;
+        test.browsingCurrentPercent = info.sitePercent || 0;
+        test.browsingCurrentElapsedMs = info.siteElapsedMs || 0;
+        test.browsingPhase = info.phase || "";
       }
     });
     test.browsingResult = result;

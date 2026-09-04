@@ -12,6 +12,8 @@
   "export_endpoint": "",
   "area_table_url": "",
   "browsing_enabled": true,
+  "browsing_dwell_ms": 4000,
+  "browsing_timeout_ms": 15000,
   "browsing_sites": [
     {
       "id": "unitel_portal",
@@ -19,7 +21,7 @@
       "url": "https://unitel.com.la/",
       "fallbackUrl": "https://unitel.com.la/",
       "enabled": true,
-      "timeout": 5000,
+      "timeout": 15000,
       "weight": 1
     },
     {
@@ -28,7 +30,7 @@
       "url": "https://vientianetimes.org.la/",
       "fallbackUrl": "https://unitel.com.la/",
       "enabled": true,
-      "timeout": 5000,
+      "timeout": 15000,
       "weight": 1
     },
     {
@@ -37,7 +39,7 @@
       "url": "https://lo.wikipedia.org/wiki/%E0%BB%9C%E0%BB%89%E0%BA%B2%E0%BA%AB%E0%BA%BC%E0%BA%B1%E0%BA%81",
       "fallbackUrl": "https://unitel.com.la/",
       "enabled": true,
-      "timeout": 5000,
+      "timeout": 15000,
       "weight": 1
     },
     {
@@ -46,7 +48,7 @@
       "url": "https://cdnjs.cloudflare.com/ajax/libs/vue/3.5.4/vue.global.prod.min.js",
       "fallbackUrl": "https://unitel.com.la/",
       "enabled": true,
-      "timeout": 5000,
+      "timeout": 15000,
       "weight": 1
     },
     {
@@ -55,7 +57,7 @@
       "url": "https://www.google.la/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png",
       "fallbackUrl": "https://unitel.com.la/",
       "enabled": true,
-      "timeout": 5000,
+      "timeout": 15000,
       "weight": 1
     }
   ],
