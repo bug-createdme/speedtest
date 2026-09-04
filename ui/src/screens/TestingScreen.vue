@@ -183,6 +183,9 @@ const streamingCards = computed(() => {
     const stats = result || (active ? live : null);
     const probed = !!result && result.measuredBy === "probe";
     const estimated = stats && stats.bytesSource === "estimated";
+    /* A known under-count rather than a derivation, so it gets its own note.
+       See BYTES_SOURCE in measurement/streaming.js. */
+    const decodedOnly = stats && stats.bytesSource === "decoded";
     const resolution = stats && stats.resolution
       ? stats.resolution
       : result && result.quality
@@ -203,6 +206,7 @@ const streamingCards = computed(() => {
       failed: !!result && result.status !== "OK",
       probed,
       estimated,
+      decodedOnly,
       resolution: resolution ? resolution + "p" : "–",
       rate:
         stats && stats.performanceRate !== null && stats.performanceRate !== undefined
@@ -220,6 +224,7 @@ const streamingCards = computed(() => {
 
 /* Footnotes, only when a row actually needs one. */
 const hasEstimatedData = computed(() => streamingCards.value.some((c) => c.estimated));
+const hasDecodedOnlyData = computed(() => streamingCards.value.some((c) => c.decodedOnly));
 const hasProbedTiers = computed(() => streamingCards.value.some((c) => c.probed));
 
 const settled = computed(() =>
@@ -423,12 +428,13 @@ const settled = computed(() =>
                 <div class="video-card-row">
                   <dt>{{ t("video.dataUsed") }}</dt>
                   <dd>
-                    {{ card.data }}<span v-if="card.estimated" class="video-mark">*</span>
+                    {{ card.data }}<span v-if="card.estimated || card.decodedOnly" class="video-mark">*</span>
                   </dd>
                 </div>
               </dl>
             </div>
             <p v-if="hasEstimatedData" class="video-note">{{ t("video.estimateNote") }}</p>
+            <p v-if="hasDecodedOnlyData" class="video-note">{{ t("video.decodedNote") }}</p>
             <p v-if="hasProbedTiers" class="video-note">{{ t("video.probeNote") }}</p>
           </div>
         </div>

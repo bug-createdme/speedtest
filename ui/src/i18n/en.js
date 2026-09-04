@@ -212,6 +212,7 @@ export default {
   "video.buffering": "Buffering...",
   "video.loadingResults": "Loading results...",
   "video.finished": "Playback test finished",
+  "video.decodedNote": "* data used counts decoded bytes on this device, which is lower than the data actually downloaded",
   "video.estimateNote": "* data used estimated from file size, not counted byte by byte",
   "video.viewTiers": "Per-quality detail ({count})",
   "video.tierLegend": "Performance rate · initial loading · data used",

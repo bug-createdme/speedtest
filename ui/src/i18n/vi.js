@@ -206,6 +206,7 @@ export default {
   "video.buffering": "Đang chờ đệm...",
   "video.loadingResults": "Đang tải kết quả...",
   "video.finished": "Đã đo xong phần phát video",
+  "video.decodedNote": "* máy này chỉ đếm được byte đã giải mã, thấp hơn lượng dữ liệu thực sự đã tải về",
   "video.estimateNote": "* dữ liệu đã dùng là ước tính theo dung lượng tệp, không phải đếm từng byte",
   "video.viewTiers": "Chi tiết từng mức chất lượng ({count})",
   "video.tierLegend": "Hiệu suất phát · thời gian tải ban đầu · dữ liệu đã dùng",

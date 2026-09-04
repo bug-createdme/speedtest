@@ -59,13 +59,22 @@ export const MEASURED_BY = {
 /*
   Where a tier's byte count came from, best source first.
 
-  DECODED reads the media element's own counters - what the decoder was fed,
-  which for a compressed stream is the payload that crossed the network.
-  Chromium and Android WebView expose it; WKWebView does not.
-  TIMING reads Resource Timing, which needs the origin to send
-  Timing-Allow-Origin, and most video hosts do not.
-  ESTIMATED is Content-Length scaled by how much of the file was buffered - a
-  derivation, not a reading, so the screen footnotes it.
+  The question being answered is how much data the tier cost, so the ranking is
+  by how directly each source measures bytes off the network.
+
+  TIMING reads Resource Timing's transferSize: the actual transfer, headers
+  included. It needs the origin to send Timing-Allow-Origin, which our own
+  assets do - measured at 4,453,387 against a 4,453,087-byte file.
+  ESTIMATED is Content-Length scaled by how much of the file was buffered. A
+  derivation rather than a reading, so the screen footnotes it, but an accurate
+  one: the player buffers the whole clip, and on iOS this matched the served
+  files to the byte across a three-tier run.
+  DECODED reads the media element's own counters, and is last because it
+  answers a different question - what reached the decoder, not what crossed the
+  network. The player fetches the whole clip and plays part of it, so this
+  under-reports: 3,742,689 for that same 4,453,087-byte file, 16% low. Kept
+  because it is the only source left on an engine with neither of the others,
+  and marked on screen when used.
   None of the three available means the tier reports no data used at all,
   rather than a number nobody can stand behind.
 */
@@ -249,19 +258,6 @@ function readTimingBytes(url) {
 }
 
 /**
- * Whether this engine keeps the decoded-byte counters at all. Chromium and
- * Android WebView do, WKWebView does not, and it costs nothing to ask - which
- * is what decides whether the Content-Length request below is worth making.
- */
-function hasDecodedByteCounters() {
-  try {
-    return "webkitVideoDecodedByteCount" in document.createElement("video");
-  } catch (e) {
-    return false;
-  }
-}
-
-/**
  * How big the whole file is, so a tier the byte counters do not cover can still
  * estimate what it pulled. Best effort and cross-origin: a host that sends no
  * Access-Control-Allow-Origin gives nothing back, and the tier then reports no
@@ -335,14 +331,22 @@ async function playVideoClip(options = {}) {
     }
   }
 
-  /* The estimate's input, and only where the counters cannot answer. Runs
-     alongside playback so it costs no wall clock; only read at the end. */
+  /*
+    The estimate's input, fetched once playback has started rather than before
+    it. Time to first frame is one of the numbers being measured, so nothing
+    this module does for its own bookkeeping may sit in front of it - and the
+    estimate is not needed until the tier ends anyway. Started from markPlaying,
+    with a last chance in finish() for a tier that never played.
+  */
   let contentLength = 0;
-  const contentLengthPromise = hasDecodedByteCounters()
-    ? Promise.resolve()
-    : fetchContentLength(url, signal).then((len) => {
-        contentLength = len;
-      });
+  let contentLengthPromise = null;
+  const startContentLength = () => {
+    if (contentLengthPromise) return contentLengthPromise;
+    contentLengthPromise = fetchContentLength(url, signal).then((len) => {
+      contentLength = len;
+    });
+    return contentLengthPromise;
+  };
 
   return new Promise((resolve) => {
     const startedAt = now();
@@ -407,9 +411,20 @@ async function playVideoClip(options = {}) {
       return Number.isFinite(t) && t > 0 ? Math.round(t * 1000) : 0;
     }
 
+    /*
+      Bytes off the network, in order of how directly each source measures that.
+
+      Transferred first, because data used is what the subscriber paid for, and
+      the player fetches the whole clip whether or not it plays all of it -
+      measured: a 6s file fully buffered while 4.74s played. Decoded bytes
+      count only what reached the decoder, so they under-report the download;
+      on this ladder Chromium read 3,742,689 against a 4,453,087-byte file, 16%
+      low, while iOS - which has no decoded counters and falls to the estimate -
+      reported it exactly. Same run, same file, two answers, and the platform
+      was the only difference. So decoded is now the last resort rather than
+      the first choice, and it says so on screen when it is used.
+    */
     function readBytes() {
-      const decoded = readDecodedBytes(video);
-      if (decoded > 0) return { bytes: decoded, source: BYTES_SOURCE.DECODED };
       const timing = readTimingBytes(playedUrl);
       if (timing > 0) return { bytes: timing, source: BYTES_SOURCE.TIMING };
       if (contentLength > 0) {
@@ -421,6 +436,8 @@ async function playVideoClip(options = {}) {
         const estimate = Math.round(contentLength * fraction);
         if (estimate > 0) return { bytes: estimate, source: BYTES_SOURCE.ESTIMATED };
       }
+      const decoded = readDecodedBytes(video);
+      if (decoded > 0) return { bytes: decoded, source: BYTES_SOURCE.DECODED };
       return { bytes: null, source: null };
     }
 
@@ -442,11 +459,18 @@ async function playVideoClip(options = {}) {
         : 0;
       const detectedHeight = video.videoHeight > 0 ? video.videoHeight : null;
 
-      /* The HEAD is normally long finished; on a slow link it is worth a few ms
-         to let it land rather than reporting no data used. */
-      try {
-        await Promise.race([contentLengthPromise, new Promise((r) => setTimeout(r, 250))]);
-      } catch (e) {}
+      /*
+        Give the estimate its input, but only if the reading it backs up did not
+        arrive: Resource Timing already answers exactly where the origin sends
+        Timing-Allow-Origin, and there is no reason to pay for a request that
+        would be discarded. Bounded either way - a tier does not hold the run
+        open waiting for a HEAD.
+      */
+      if (measuredBy === MEASURED_BY.PLAYBACK && readTimingBytes(playedUrl) === 0) {
+        try {
+          await Promise.race([startContentLength(), new Promise((r) => setTimeout(r, 800))]);
+        } catch (e) {}
+      }
       const { bytes, source } = measuredBy === MEASURED_BY.PLAYBACK
         ? readBytes()
         : { bytes: null, source: null };
@@ -501,6 +525,10 @@ async function playVideoClip(options = {}) {
       const stamp = now();
       if (timeToPlayMs === null) {
         timeToPlayMs = Math.max(1, Math.round(stamp - startedAt));
+        /* First frame is on screen, so the startup reading is taken and this
+           can no longer perturb it. Early enough that the data-used figure
+           fills in while the tier plays rather than only at its end. */
+        startContentLength();
       }
       if (stalledAt > 0) {
         const stallDur = stamp - stalledAt;
