@@ -41,6 +41,54 @@ const log = (m) => console.log("\x1b[36m[package]\x1b[0m " + m);
 const warn = (m) => console.log("\x1b[33m[package] WARN " + m + "\x1b[0m");
 const ok = (m) => console.log("\x1b[32m[package] OK\x1b[0m " + m);
 
+const hostOf = (u) => {
+  try {
+    return new URL(u).host;
+  } catch (e) {
+    return u;
+  }
+};
+
+/*
+  Which video samples this bundle is supposed to be shipping, read out of
+  settings.json rather than listed here.
+
+  The quality ladder is configuration - a deployment can add a tier, drop one,
+  or point one somewhere else - so a hardcoded list would go on approving a
+  bundle that is missing whatever the ladder actually asks for. That is how the
+  three video-<height>p.mp4 tiers came to be absent from this check while
+  make-test-assets.js was already producing them.
+
+  Only relative URLs are ours to ship. An absolute one names another host on
+  purpose, and nothing in test-assets/ could satisfy it.
+*/
+function expectedVideoAssets() {
+  let cfg;
+  try {
+    cfg = JSON.parse(fs.readFileSync(path.join(ROOT, "settings.json"), "utf8"));
+  } catch (e) {
+    warn("settings.json unreadable (" + e.message + ") - cannot tell which video samples this bundle needs.");
+    return [];
+  }
+  if (cfg.video_enabled === false) return [];
+
+  const ours = (u) =>
+    typeof u === "string" && u !== "" && !/^(https?:)?\/\//i.test(u) && !u.startsWith("data:");
+
+  const wanted = [];
+  const add = (url, label, fallbackUrl) => {
+    if (!ours(url)) return;
+    const name = url.split(/[?#]/)[0].replace(/^\/+/, "");
+    if (!wanted.some((w) => w.name === name)) wanted.push({ name, label, fallbackUrl });
+  };
+
+  add(cfg.video_url, "single-URL video test", null);
+  for (const tier of cfg.video_test_qualities || []) {
+    add(tier.url, (tier.quality || "video") + " tier", tier.fallbackUrl);
+  }
+  return wanted;
+}
+
 function sh(cmd, opts) {
   return execSync(cmd, { cwd: ROOT, stdio: "pipe", ...opts }).toString();
 }
@@ -345,8 +393,29 @@ function main() {
     warn("test-assets/browse-sample.html missing - the Web stage will 404.");
     warn("  Run: node scripts/make-test-assets.js");
   }
-  if (!have.includes("video-sample.mp4")) {
-    warn("test-assets/video-sample.mp4 missing - the Video stage will 404 and report Error.");
+
+  const missingVideo = expectedVideoAssets().filter((a) => !have.includes(a.name));
+  for (const asset of missingVideo) {
+    if (asset.fallbackUrl) {
+      /*
+        The failure this warning exists for. A tier with a fallback does not
+        break - it quietly plays somebody else's clip from somebody else's CDN,
+        so the bundle looks complete, the stage reports numbers, and those
+        numbers describe a host this deployment does not own.
+      */
+      warn(
+        "test-assets/" + asset.name + " missing - the " + asset.label +
+          " will fall back to " + hostOf(asset.fallbackUrl) + ","
+      );
+      warn("  so it measures that host instead of this server.");
+    } else {
+      warn(
+        "test-assets/" + asset.name + " missing - the " + asset.label +
+          " will 404 and report Error."
+      );
+    }
+  }
+  if (missingVideo.length > 0) {
     warn("  It needs ffmpeg; scripts/make-test-assets.js prints the command.");
   }
 
