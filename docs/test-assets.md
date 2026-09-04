@@ -61,10 +61,10 @@ source):
 | File | Size | Notes |
 |---|---|---|
 | `browse-sample.html` | 1,048,576 B | A real page padded with random data. Twice the 500,000-byte threshold, so "reached 500 KB" and "finished the file" stay distinct events. |
-| `video-sample.mp4` | ~4 MB | 720p, 10 s. The single-URL fallback (`video_url`). |
-| `video-360p.mp4` | ~730 KB | 360p, 6 s, ~1 Mbps. |
-| `video-720p.mp4` | ~2.3 MB | 720p, 6 s, ~3 Mbps. |
-| `video-1080p.mp4` | ~4.5 MB | 1080p, 6 s, ~6 Mbps. |
+| `video-sample.mp4` | 3.87 MB | 720p, 10 s, 3.10 Mbps. The single-URL fallback (`video_url`). |
+| `video-360p.mp4` | 684 KB | 360p, 6 s, 0.91 Mbps. |
+| `video-720p.mp4` | 2.28 MB | 720p, 6 s, 3.04 Mbps. |
+| `video-1080p.mp4` | 4.45 MB | 1080p, 6 s, 5.94 Mbps. |
 
 The three `video-<height>p.mp4` files are the ladder the Video stage steps
 through, one tier at a time. All are generated only where `ffmpeg` is on PATH
@@ -85,8 +85,47 @@ a wrong number rather than a missing one. The source now carries grain so the
 encoder genuinely needs the bits, for the same reason the browse sample is
 padded with incompressible data.
 
-A full run therefore moves roughly 6–7 MB of video. That is negligible beside
-the download stage, which moves far more, and it is what a video test costs.
+A full run therefore moves roughly 7 MB of video. That is negligible beside the
+download stage, which moves far more, and it is what a video test costs.
+
+The bitrate is held with `-x264opts nal-hrd=cbr`, not just `-b:v`. `-minrate` is
+advisory to x264: told to spend 6 Mbps on real footage downscaled from a good
+master it stops at the quality it thinks is enough and returns 5.27 Mbps, 12%
+short. What closes the gap is filler, and that is the right trade here - those
+bytes cross the link and must arrive on time exactly like picture bytes, so the
+tier still asks whether the connection sustains 6 Mbps, and asks it identically
+whichever clip is supplied.
+
+### The source clip, and its licence
+
+The tiers are cut from a real clip, not from colour bars. Nothing about the
+measurement depends on it - what is measured is time to first frame, stalls and
+bits delivered - but the clip plays on screen during the test, and a tester
+watching a rainbow of test bars reasonably wonders whether the app is broken.
+
+The script does **not** download one. The asset ships inside an operator's app,
+so which clip and under which licence is a decision to make deliberately rather
+than something a build step resolves off somebody's CDN - and a hardcoded video
+URL is a failure this project has already had twice.
+
+Supply one of:
+
+```bash
+VIDEO_SOURCE=/path/to/clip.mp4 node scripts/make-test-assets.js
+```
+
+or drop any video into `test-assets/source/`. With no source the script falls
+back to the synthetic pattern, so it still runs on a machine that has no clip.
+
+The source must be at least 1920x1080 and at least 10 s long, or the tier it
+feeds is upscaled or cut short.
+
+**The best source is the operator's own footage** - then there is no licence
+question at all. Failing that, what is in `test-assets/source/` today is *Big
+Buck Bunny*, © 2008 Blender Foundation, [bigbuckbunny.org](https://www.bigbuckbunny.org),
+licensed **CC-BY 3.0**. That licence permits commercial use and requires
+attribution, which is an obligation on whoever ships the app - confirm it is
+carried in the app's credits, or replace the clip.
 
 The video must be **faststart** (moov atom at the front). Without it playback
 cannot begin until the whole clip has arrived, and every run reads as one long

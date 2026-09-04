@@ -201,16 +201,91 @@ const QUALITIES = [
   { name: "video-1080p.mp4", size: "1920x1080", bitrate: "6000k", duration: 6 }
 ];
 
-function ffmpegArgsFor(q, outPath) {
+/*
+  The clip the tiers are cut from, if one has been supplied.
+
+  Real footage rather than colour bars, because these play on screen during the
+  test and a tester watching a rainbow of bars reasonably wonders whether the
+  thing is broken. It changes nothing about the measurement - what is measured
+  is time to first frame, stalls, and how many bits had to arrive - but it is
+  the difference between a screen that looks finished and one that does not.
+
+  NOT downloaded by this script. The asset ships inside an operator's app, so
+  which clip and under which licence is a decision to make deliberately, once,
+  rather than something a build step quietly resolves off somebody's CDN - and
+  a hardcoded URL is the failure this project has already had twice.
+
+  Supply one as VIDEO_SOURCE=/path/to/clip.mp4, or drop any video into
+  test-assets/source/. Without one the synthetic pattern is used, so the script
+  still works on a machine that has no clip and CI stays self-contained.
+
+  The source has to be at least as large as the biggest tier (1920x1080) and at
+  least as long as the longest duration below, or the tier it feeds is upscaled
+  or cut short. See docs/test-assets.md.
+*/
+function findSource() {
+  const explicit = process.env.VIDEO_SOURCE;
+  if (explicit) {
+    if (!fs.existsSync(explicit)) {
+      throw new Error("VIDEO_SOURCE points at " + explicit + ", which does not exist");
+    }
+    return explicit;
+  }
+  const dir = path.join(OUT_DIR, "source");
+  if (!fs.existsSync(dir)) return null;
+  const clip = fs
+    .readdirSync(dir)
+    .filter((f) => /\.(mp4|mov|mkv|webm|m4v)$/i.test(f))
+    .sort()[0];
+  return clip ? path.join(dir, clip) : null;
+}
+
+function ffmpegArgsFor(q, outPath, source) {
   const bufsize = parseInt(q.bitrate, 10) * 2 + "k";
+  /*
+    Held to the bitrate either way. That is the whole point of the tier - see
+    the note on QUALITIES - and it is what stops a well-compressing clip from
+    turning the 1080p tier back into something any link can carry.
+  */
+  const rate =
+    " -c:v libx264 -preset veryfast -b:v " + q.bitrate +
+    " -minrate " + q.bitrate + " -maxrate " + q.bitrate + " -bufsize " + bufsize +
+    /*
+      nal-hrd=cbr, or the tier does not cost what it claims.
+
+      -minrate is advisory to x264: told to spend 6 Mbps on real footage
+      downscaled from a good master, it stops at the quality it considers
+      enough and hands back 5.27. Measured on this ladder, ABR under-ran the
+      1080p tier by 12% and a slower preset did not help; CBR reached 5.94.
+
+      What fills the gap is filler NAL units rather than picture, and that is
+      the right trade for a measurement asset: those bytes cross the link and
+      have to arrive on time exactly like picture bytes, so the tier still asks
+      the question it claims to ask - can this connection sustain 6 Mbps - and
+      now it asks it identically whichever clip is supplied. Under ABR, swapping
+      the source silently changes what every tier costs.
+    */
+    ' -x264opts "nal-hrd=cbr:force-cfr=1"' +
+    " -pix_fmt yuv420p -c:a aac -b:a 128k" +
+    " -movflags +faststart " + outPath;
+
+  if (source) {
+    /* lanczos because these are downscales from a much larger master, and the
+       default bilinear leaves them soft enough to look like a bad encode. */
+    return (
+      '-y -i "' + source + '"' +
+      " -f lavfi -i sine=frequency=440:duration=" + q.duration +
+      " -map 0:v:0 -map 1:a:0 -t " + q.duration +
+      ' -vf "scale=' + q.size.replace("x", ":") + ':flags=lanczos"' +
+      rate
+    );
+  }
+
   return (
     "-y -f lavfi -i testsrc2=size=" + q.size + ":rate=30:duration=" + q.duration +
     " -f lavfi -i sine=frequency=440:duration=" + q.duration +
     ' -filter_complex "[0:v]noise=alls=28:allf=t+u[v]" -map "[v]" -map 1:a' +
-    " -c:v libx264 -preset veryfast -b:v " + q.bitrate +
-    " -minrate " + q.bitrate + " -maxrate " + q.bitrate + " -bufsize " + bufsize +
-    " -pix_fmt yuv420p -c:a aac -b:a 128k" +
-    " -movflags +faststart " + outPath
+    rate
   );
 }
 
@@ -225,6 +300,13 @@ function main() {
   const hasFfmpeg = haveFfmpeg();
   const hasDocker = !hasFfmpeg && haveDocker();
 
+  const source = findSource();
+  if (source) {
+    log("source clip: " + path.relative(ROOT, source));
+  } else {
+    log("no source clip - using the synthetic pattern. See findSource().");
+  }
+
   for (const q of QUALITIES) {
     const videoPath = path.join(OUT_DIR, q.name);
     if (fs.existsSync(videoPath)) {
@@ -232,7 +314,7 @@ function main() {
     } else if (hasFfmpeg) {
       log("ffmpeg found, generating " + q.name + " (" + q.size + ")...");
       try {
-        execSync("ffmpeg " + ffmpegArgsFor(q, '"' + videoPath + '"'), { stdio: "pipe" });
+        execSync("ffmpeg " + ffmpegArgsFor(q, '"' + videoPath + '"', source), { stdio: "pipe" });
         reportVideo(videoPath);
       } catch (e) {
         log("Failed generating " + q.name + ": " + e.message);
@@ -242,7 +324,7 @@ function main() {
       try {
         execSync(
           'docker run --rm -v "' + OUT_DIR + '":/out linuxserver/ffmpeg:latest ' +
-            ffmpegArgsFor(q, "/out/" + q.name),
+            ffmpegArgsFor(q, "/out/" + q.name, source ? "/out/source/" + path.basename(source) : null),
           { stdio: "pipe", env: { ...process.env, MSYS_NO_PATHCONV: "1" } }
         );
         reportVideo(videoPath);

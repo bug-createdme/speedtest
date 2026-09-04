@@ -270,8 +270,10 @@ Ra `speedtest_v<version>_<ngày>.zip` ở gốc repo, tự lấy `server-list.pr
 và tự kiểm tra gói. Upload zip đó lên SuperApp Console.
 
 Nghiệm thu trên máy thật: chạy một lần đo, màn hình video phải hiện ba tier với
-**nhãn khớp đúng độ phân giải** (360p→360p, 720p→720p, 1080p→1080p) và "Dữ liệu
-đã dùng" cỡ 567 kiB / 1.93 MiB / 3.75 MiB.
+**nhãn khớp đúng độ phân giải** (360p→360p, 720p→720p, 1080p→1080p), "Dữ liệu
+đã dùng" cỡ **668 kiB / 2.17 MiB / 4.25 MiB**, và trong khung player là cảnh
+phim thật — thấy sọc màu nghĩa là asset trên server còn là bản dựng bằng mẫu
+thử tổng hợp, xem [test-assets.md](test-assets.md).
 
 Thấy 480p/540p ở cột độ phân giải nghĩa là **đang fallback** — asset chưa lên
 tới server, quay lại §7.

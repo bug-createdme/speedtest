@@ -444,7 +444,14 @@ function main() {
 
   const assetsDir = path.join(ROOT, "test-assets");
   fs.mkdirSync(path.join(STAGE, "test-assets"), { recursive: true });
-  const have = fs.existsSync(assetsDir) ? fs.readdirSync(assetsDir) : [];
+  /*
+    Files only. test-assets/ also holds source/, the master clip the tiers are
+    cut from - tens of megabytes, of no use to the server, and a directory,
+    which copyFileSync throws on rather than skips.
+  */
+  const have = fs.existsSync(assetsDir)
+    ? fs.readdirSync(assetsDir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name)
+    : [];
   for (const f of have) {
     fs.copyFileSync(path.join(assetsDir, f), path.join(STAGE, "test-assets", f));
   }
