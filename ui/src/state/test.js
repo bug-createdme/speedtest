@@ -5,7 +5,7 @@ import { connectionType } from "./ui.js";
 import { compareNetwork, networkSnapshot, watchNetwork } from "../context/network.js";
 import { fetchLocation, startLocationTracker, stopLocationTracker, withArea } from "../context/location.js";
 import { getOperatorFromIp, getOperatorFromIsdn, parseIpResponse } from "../context/operator.js";
-import { runStreamingTest } from "../measurement/streaming.js";
+import { DEFAULT_VIDEO_SETTLE_MS, runStreamingTest } from "../measurement/streaming.js";
 import {
   DEFAULT_BROWSING_DWELL_MS,
   DEFAULT_BROWSING_TIMEOUT_MS,
@@ -189,6 +189,18 @@ export const test = reactive({
   streamingCurrentQuality: "",
   streamingProgress: 0,
   streamingLiveStats: null,
+  /* Every tier the run will play, known before the first frame, so the screen
+     can show the whole table and fill it in as it goes - same arrangement the
+     browsing stage uses for its site list. */
+  streamingPlannedQualities: [],
+  /* Tiers that have finished, in play order. */
+  streamingTiers: [],
+  streamingCurrentIndex: -1,
+  /* Height the decoder is actually producing, which is not always the height
+     the tier is labelled with. */
+  streamingCurrentResolution: null,
+  /* "starting" | "playing" | "buffering" | "loading-results" | "done" */
+  streamingPhase: "",
 
   /* Overall QoE Score */
   qoeResult: null,
@@ -266,6 +278,7 @@ const UI_SETTING_KEYS = [
   "video_url",
   "video_play_seconds",
   "video_timeout",
+  "video_settle_ms",
   "video_test_qualities",
   "qoe_weights"
 ];
@@ -298,6 +311,13 @@ export const uiSettings = {
   video_url: "",
   video_play_seconds: 4,
   video_timeout: 15000,
+  /*
+    How long a finished tier's numbers stay on screen before the next tier
+    starts. Presentational only - excluded from every reported number - but
+    without it three tiers flash past on a fast connection and the detail table
+    is unreadable. Same reasoning as browsing_dwell_ms.
+  */
+  video_settle_ms: DEFAULT_VIDEO_SETTLE_MS,
   video_test_qualities: [],
   qoe_weights: {
     download: 0.25,
@@ -408,6 +428,11 @@ function resetRun() {
   test.streamingCurrentQuality = "";
   test.streamingProgress = 0;
   test.streamingLiveStats = null;
+  test.streamingPlannedQualities = [];
+  test.streamingTiers = [];
+  test.streamingCurrentIndex = -1;
+  test.streamingCurrentResolution = null;
+  test.streamingPhase = "";
   test.qoeResult = null;
   test.dlProgress = 0;
   test.ulProgress = 0;
@@ -855,6 +880,7 @@ async function runVideoStage() {
       qualities: hasQualities ? uiSettings.video_test_qualities : undefined,
       playSeconds: Number(uiSettings.video_play_seconds) || 4,
       timeoutMs: Number(uiSettings.video_timeout) || 15000,
+      settleMs: uiSettings.video_settle_ms,
       signal: streamingAbort.signal,
       onProgress: (value, liveStats) => {
         test.videoProgress = value;
@@ -864,6 +890,11 @@ async function runVideoStage() {
           if (liveStats.quality) test.streamingCurrentQuality = liveStats.quality;
           if (liveStats.startupTimeMs) test.videoTimeToPlay = liveStats.startupTimeMs;
           if (liveStats.bufferingCount !== undefined) test.videoRebufferCount = liveStats.bufferingCount;
+          if (liveStats.plannedQualities) test.streamingPlannedQualities = liveStats.plannedQualities;
+          if (liveStats.tiers) test.streamingTiers = liveStats.tiers;
+          if (Number.isInteger(liveStats.index)) test.streamingCurrentIndex = liveStats.index;
+          if (liveStats.resolution !== undefined) test.streamingCurrentResolution = liveStats.resolution;
+          if (liveStats.status) test.streamingPhase = liveStats.status;
         }
       }
     });
@@ -875,9 +906,14 @@ async function runVideoStage() {
     test.videoTotal = result.totalMs === null ? 0 : result.totalMs;
     test.videoQuality = result.quality === null ? 0 : result.quality;
     test.streamingCurrentQuality = result.highestStableQuality || "";
+    /* The final per-tier rows, so the table on screen matches the result the
+       run is about to report rather than the last live tick. */
+    if (result.qualitiesTested) test.streamingTiers = result.qualitiesTested;
+    test.streamingPhase = "done";
   } catch (e) {
     test.videoStatus = "Error";
     test.streamingResult = { status: "Error", score: 0 };
+    test.streamingPhase = "done";
   } finally {
     streamingAbort = null;
   }
@@ -1098,8 +1134,24 @@ export function startTest() {
   );
 
   instance.onupdate = (data) => {
-    const stage = WORKER_STAGE[String(data.testState)] || STAGE.IDLE;
-    test.stage = stage;
+    const reported = WORKER_STAGE[String(data.testState)] || STAGE.IDLE;
+    /*
+      The worker saying "finished" means its own stages are finished, not that
+      the run is: browsing, video and scoring still run on the main thread
+      afterwards, from onend. speedtest.js delivers that update before it calls
+      onend, so letting DONE through here hands the result screen a run that is
+      still going - App.vue navigates on DONE.
+
+      It usually got away with it because runBrowsingStage moves the stage on
+      again inside the same tick, before Vue flushes the watcher. With browsing
+      configured off there is nothing in that tick to move it, and the run
+      jumps to results while the video stage plays on invisibly - which is also
+      what the aborted path would do on its own.
+
+      So finishRun() owns DONE, and so does the abort branch of onend. Nothing
+      the worker reports can end the run early.
+    */
+    if (reported !== STAGE.DONE) test.stage = reported;
 
     test.download = num(data.dlStatus);
     test.upload = num(data.ulStatus);
@@ -1148,10 +1200,10 @@ export function startTest() {
       }
     }
 
-    if (stage === STAGE.DOWNLOAD && test.download > 0) {
+    if (reported === STAGE.DOWNLOAD && test.download > 0) {
       pushSample(test.dlSamples, test.download);
     }
-    if (stage === STAGE.UPLOAD && test.upload > 0) {
+    if (reported === STAGE.UPLOAD && test.upload > 0) {
       pushSample(test.ulSamples, test.upload);
     }
 

@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import MetricCard from "../components/MetricCard.vue";
 import SparkLine from "../components/SparkLine.vue";
 import { test } from "../state/test.js";
+import { formatBytes } from "../measurement/streaming.js";
 import { SCREEN, connectionType, goTo } from "../state/ui.js";
 import { shareSummary, summaryText } from "../report/share.js";
 import { useI18n } from "../i18n/index.js";
@@ -159,6 +160,31 @@ const streamingMetrics = computed(() => {
     };
   }
   return null;
+});
+
+/* Total bytes the video stage pulled, when any tier could count them. */
+const streamingDataUsed = computed(() => formatBytes(streamingMetrics.value?.bytesUsed));
+
+/*
+  One row per tier played, carrying the three numbers that explain the score:
+  how much of the time was playback, how long the first frame took, and what it
+  cost in data.
+*/
+const streamingTiers = computed(() => {
+  const tested = streamingMetrics.value?.qualitiesTested;
+  if (!tested || !tested.length) return [];
+  return tested.map((tier, index) => ({
+    key: (tier.qualityLabel || "auto") + ":" + index,
+    label: tier.qualityLabel || "auto",
+    failed: tier.status !== "OK",
+    resolution: tier.quality ? tier.quality + "p" : "–",
+    rate:
+      tier.performanceRate !== null && tier.performanceRate !== undefined
+        ? tier.performanceRate.toFixed(1) + "%"
+        : "–",
+    startup: tier.startupTimeMs ? (tier.startupTimeMs / 1000).toFixed(2) + t("unit.s") : "–",
+    data: formatBytes(tier.bytesUsed) || "–"
+  }));
 });
 
 const timings = computed(() =>
@@ -462,6 +488,28 @@ const details = computed(() =>
         <span class="loaded-label">{{ t("video.throughput") }}</span>
         <span class="loaded-value">{{ streamingMetrics.throughputMbps }} {{ t("unit.mbps") }}</span>
       </div>
+      <div v-if="streamingDataUsed" class="loaded-row">
+        <span class="loaded-label">{{ t("video.dataUsed") }}</span>
+        <span class="loaded-value">{{ streamingDataUsed }}</span>
+      </div>
+
+      <!-- The same per-tier table the testing screen builds, kept after the
+           run so the numbers behind the score are still there to read. -->
+      <details v-if="streamingTiers.length" class="site-details">
+        <summary class="site-toggle">{{ t("video.viewTiers", { count: streamingTiers.length }) }}</summary>
+        <ul class="site-list">
+          <li v-for="tier in streamingTiers" :key="tier.key" class="site-row tier-row">
+            <span class="site-name">
+              {{ t("video.tier", { quality: tier.label }) }}
+              <span class="tier-res">{{ tier.resolution }}</span>
+            </span>
+            <span class="site-time" :class="{ 'site-error': tier.failed }">
+              {{ tier.rate }} · {{ tier.startup }} · {{ tier.data }}
+            </span>
+          </li>
+        </ul>
+        <p class="tier-legend">{{ t("video.tierLegend") }}</p>
+      </details>
     </section>
 
     <dl class="details card">
@@ -1022,5 +1070,22 @@ const details = computed(() =>
 
 .site-error {
   color: var(--danger);
+}
+
+.tier-row {
+  gap: var(--sp-2);
+}
+
+.tier-res {
+  color: var(--brand-primary);
+  font-family: var(--font-numeric);
+  font-weight: var(--fw-semibold);
+  padding-left: 4px;
+}
+
+.tier-legend {
+  margin: var(--sp-1) 0 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
 }
 </style>

@@ -4,6 +4,7 @@ import SpeedGauge from "../components/SpeedGauge.vue";
 import SparkLine from "../components/SparkLine.vue";
 import StageStepper from "../components/StageStepper.vue";
 import { STAGE, availableStages, stageDuration, test } from "../state/test.js";
+import { formatBytes } from "../measurement/streaming.js";
 import { useI18n } from "../i18n/index.js";
 
 defineEmits(["cancel"]);
@@ -114,17 +115,112 @@ const browseSiteBarWidth = computed(
   () => Math.min(100, Math.max(0, test.browsingCurrentPercent || 0)) + "%"
 );
 
-const streamingStatusText = computed(() => {
-  if (!test.streamingLiveStats) return "Đang kết nối video...";
-  if (test.streamingLiveStats.status === "buffering") return "Đang chờ đệm...";
-  if (test.streamingLiveStats.status === "playing") return "Đang phát mượt";
-  return "Đang phát video";
+/* ── VIDEO STAGE ───────────────────────────────────────────────────── */
+
+/* The tier on screen right now, by its configured label ("360p"), so the
+   caption names what is playing rather than saying "video". */
+const streamingTierLabel = computed(
+  () =>
+    test.streamingCurrentQuality ||
+    test.streamingPlannedQualities[Math.max(0, test.streamingCurrentIndex)]?.quality ||
+    ""
+);
+
+/* nPerf's caption under the player: what the player is doing, at this quality. */
+const streamingCaption = computed(() => {
+  const q = streamingTierLabel.value;
+  switch (test.streamingPhase) {
+    case "buffering":
+      return t("video.buffering");
+    case "loading-results":
+      return t("video.loadingResults");
+    case "done":
+      return t("video.finished");
+    case "playing":
+      return q ? t("video.playingQuality", { quality: q }) : t("status.measuringVideo");
+    default:
+      return q ? t("video.startingQuality", { quality: q }) : t("status.measuringVideo");
+  }
 });
 
-const streamingThroughputText = computed(() => {
-  const mbps = test.streamingLiveStats?.throughputMbps;
-  return mbps && mbps > 0 ? `${mbps.toFixed(1)} Mbps` : "—";
+const streamingSmooth = computed(() => test.streamingPhase === "playing");
+
+/* Progress of the tier on screen, not of the run - the footer bar already
+   shows the run. */
+const streamingTierBarWidth = computed(() => {
+  const total = test.streamingPlannedQualities.length || 1;
+  const idx = Math.max(0, test.streamingCurrentIndex);
+  const within = Math.min(1, Math.max(0, test.streamingProgress * total - idx));
+  return (within * 100).toFixed(1) + "%";
 });
+
+function secondsText(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return (n / 1000).toFixed(2) + " " + t("unit.s");
+}
+
+function bytesText(bytes) {
+  return formatBytes(bytes);
+}
+
+/*
+  The detail table under the player: one card per tier, every tier listed
+  before the first one plays, each filling in with its own numbers as the run
+  reaches it. Same arrangement as the browse ledger above.
+*/
+const streamingCards = computed(() => {
+  const planned = test.streamingPlannedQualities || [];
+  const done = test.streamingTiers || [];
+  const live = test.streamingLiveStats;
+  const idx = test.streamingCurrentIndex;
+
+  return planned.map((tier, index) => {
+    const result = done[index] || null;
+    const active = index === idx && !result;
+    /* Live figures for the tier playing now, settled ones for a tier that has
+       finished, nothing at all for one not reached yet. */
+    const stats = result || (active ? live : null);
+    const probed = !!result && result.measuredBy === "probe";
+    const estimated = stats && stats.bytesSource === "estimated";
+    const resolution = stats && stats.resolution
+      ? stats.resolution
+      : result && result.quality
+        ? result.quality
+        : null;
+
+    return {
+      key: tier.quality + ":" + index,
+      /* nPerf names the source in this cell ("Google YouTube") and puts the
+         resolution beside it. A tier can be given a name for that; without
+         one it falls back to naming the tier itself. */
+      name: tier.name && tier.name !== tier.quality
+        ? tier.name
+        : t("video.tier", { quality: tier.quality }),
+      label: tier.quality,
+      active,
+      pending: index > idx,
+      failed: !!result && result.status !== "OK",
+      probed,
+      estimated,
+      resolution: resolution ? resolution + "p" : "–",
+      rate:
+        stats && stats.performanceRate !== null && stats.performanceRate !== undefined
+          ? stats.performanceRate.toFixed(2) + " " + t("unit.percent")
+          : "–",
+      startup: stats && stats.startupTimeMs ? secondsText(stats.startupTimeMs) : "–",
+      buffering:
+        stats && stats.bufferingDurationMs !== null && stats.bufferingDurationMs !== undefined
+          ? secondsText(stats.bufferingDurationMs)
+          : "–",
+      data: (stats && bytesText(stats.bytesUsed)) || "–"
+    };
+  });
+});
+
+/* Footnotes, only when a row actually needs one. */
+const hasEstimatedData = computed(() => streamingCards.value.some((c) => c.estimated));
+const hasProbedTiers = computed(() => streamingCards.value.some((c) => c.probed));
 
 const settled = computed(() =>
   [
@@ -264,34 +360,76 @@ const settled = computed(() =>
 
         <!-- ── STAGE: LIVE VIDEO STREAMING PLAYER ──────────────────────── -->
         <div v-else-if="test.stage === STAGE.VIDEO" class="stage-view-card video-playback-card">
-          <div class="video-player-frame">
-            <!-- Video element appended here by streaming engine -->
-            <div id="video-testing-container" class="video-testing-container"></div>
+          <div class="video-mockup">
+            <div class="video-stage">
+              <!--
+                The player itself. streaming.js puts the <video> in here and
+                times it, so what is on screen is what was measured.
+              -->
+              <div id="video-testing-container" class="video-viewport"></div>
 
-            <!-- Floating Top Overlays -->
-            <div class="video-overlay-top">
-              <span class="video-badge-quality">{{ test.streamingCurrentQuality || "HD" }}</span>
-              <span class="video-badge-status">
-                <span class="video-pulse-dot"></span>
-                {{ streamingStatusText }}
-              </span>
+              <div class="video-overlay-top">
+                <span class="video-badge-quality">{{ streamingTierLabel || "—" }}</span>
+                <span class="video-badge-status">
+                  <span class="video-pulse-dot" :class="{ 'video-pulse-idle': !streamingSmooth }"></span>
+                  {{ test.streamingCurrentResolution ? test.streamingCurrentResolution + "p" : "—" }}
+                </span>
+              </div>
             </div>
 
-            <!-- Floating Bottom Stats Bar -->
-            <div class="video-overlay-bottom">
-              <div class="video-stat-col">
-                <span class="v-stat-sub">Bắt đầu phát</span>
-                <span class="v-stat-main">{{ test.videoTimeToPlay ? test.videoTimeToPlay.toFixed(0) + " ms" : "..." }}</span>
-              </div>
-              <div class="video-stat-col">
-                <span class="v-stat-sub">Tốc độ video</span>
-                <span class="v-stat-main">{{ streamingThroughputText }}</span>
-              </div>
-              <div class="video-stat-col">
-                <span class="v-stat-sub">Số lần đệm</span>
-                <span class="v-stat-main">{{ test.videoRebufferCount || 0 }} lần</span>
-              </div>
+            <div class="video-progress-track">
+              <div class="video-progress-fill" :style="{ width: streamingTierBarWidth }"></div>
             </div>
+
+            <!-- nPerf's caption strip: what the player is doing, right now. -->
+            <div class="video-caption">
+              <span class="video-caption-spinner" aria-hidden="true"></span>
+              <span class="video-caption-text">{{ streamingCaption }}</span>
+            </div>
+          </div>
+
+          <!-- The detail table: every tier, its numbers filling in as it plays. -->
+          <div v-if="streamingCards.length" class="video-detail">
+            <div
+              v-for="card in streamingCards"
+              :key="card.key"
+              class="video-card"
+              :class="{
+                'video-card-active': card.active,
+                'video-card-pending': card.pending,
+                'video-card-failed': card.failed
+              }"
+            >
+              <div class="video-card-head">
+                <span class="video-card-name">{{ card.name }}</span>
+                <span class="video-card-res">{{ card.resolution }}</span>
+              </div>
+              <dl class="video-card-rows">
+                <div class="video-card-row">
+                  <dt>{{ t("video.performanceRate") }}</dt>
+                  <dd>
+                    <span v-if="card.active" class="video-row-spinner" aria-hidden="true"></span>
+                    <template v-else>{{ card.rate }}</template>
+                  </dd>
+                </div>
+                <div class="video-card-row">
+                  <dt>{{ t("video.initialLoading") }}</dt>
+                  <dd>{{ card.startup }}</dd>
+                </div>
+                <div class="video-card-row">
+                  <dt>{{ t("video.bufferingTotal") }}</dt>
+                  <dd>{{ card.buffering }}</dd>
+                </div>
+                <div class="video-card-row">
+                  <dt>{{ t("video.dataUsed") }}</dt>
+                  <dd>
+                    {{ card.data }}<span v-if="card.estimated" class="video-mark">*</span>
+                  </dd>
+                </div>
+              </dl>
+            </div>
+            <p v-if="hasEstimatedData" class="video-note">{{ t("video.estimateNote") }}</p>
+            <p v-if="hasProbedTiers" class="video-note">{{ t("video.probeNote") }}</p>
           </div>
         </div>
 
@@ -301,8 +439,8 @@ const settled = computed(() =>
             <div class="calculating-ring"></div>
             <div class="calculating-label">QoE</div>
           </div>
-          <div class="calculating-title">Đang tổng hợp điểm số chất lượng mạng...</div>
-          <div class="calculating-desc">Tính toán đa chiều theo chuẩn trải nghiệm người dùng thực tế</div>
+          <div class="calculating-title">{{ t("status.calculatingQoE") }}</div>
+          <div class="calculating-desc">{{ t("status.calculatingDesc") }}</div>
         </div>
 
         <!-- ── STAGE: SPEED GAUGES (PING, DOWNLOAD, UPLOAD) ────────────── -->
@@ -773,24 +911,72 @@ const settled = computed(() =>
   width: 100%;
 }
 
-.video-player-frame {
+/* Same chrome as the browser mockup above: player, its own progress bar, and
+   a caption strip saying what is happening to it. */
+.video-mockup {
+  width: 100%;
+  background: var(--surface-raised, #18191d);
+  border: 1px solid var(--border-strong, #32353f);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.video-stage {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
   background: #000;
-  border-radius: 14px;
-  overflow: hidden;
-  border: 1px solid var(--border-strong, #363945);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
-.video-testing-container {
-  width: 100%;
-  height: 100%;
+.video-viewport {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   background: #000;
+}
+
+.video-progress-track {
+  width: 100%;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+
+.video-progress-fill {
+  height: 100%;
+  background: var(--brand-gradient, linear-gradient(90deg, #ff7a00, #ff4500));
+  transition: width 0.25s ease-out;
+}
+
+.video-caption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--surface, #121316);
+  border-top: 1px solid var(--border, #262830);
+}
+
+.video-caption-text {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text, #fff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.video-caption-spinner {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 122, 0, 0.25);
+  border-top-color: var(--brand-primary, #ff7a00);
+  border-radius: 50%;
+  animation: ledger-spin 0.7s linear infinite;
 }
 
 .video-overlay-top {
@@ -839,45 +1025,133 @@ const settled = computed(() =>
   animation: pulse-dot 1.2s infinite ease-in-out;
 }
 
+/* Not playing: the dot stops claiming it is. */
+.video-pulse-idle {
+  background: var(--text-muted, #8b909f);
+  animation: none;
+}
+
 @keyframes pulse-dot {
   0% { transform: scale(0.9); opacity: 0.6; }
   50% { transform: scale(1.3); opacity: 1; }
   100% { transform: scale(0.9); opacity: 0.6; }
 }
 
-.video-overlay-bottom {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  padding: 8px 12px;
-  background: linear-gradient(0deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.3) 70%, transparent 100%);
-  pointer-events: none;
-  z-index: 5;
+@media (prefers-reduced-motion: reduce) {
+  .video-pulse-dot { animation: none; }
+  .video-caption-spinner,
+  .video-row-spinner { animation-duration: 2.4s; }
 }
 
-.video-stat-col {
+/* ── Per-tier detail table ─────────────────────────────────────────── */
+.video-detail {
   display: flex;
   flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.video-card {
+  border: 1px solid var(--border, #2b2e38);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface, #18191d);
+}
+
+.video-card-pending {
+  opacity: 0.5;
+}
+
+.video-card-active {
+  border-color: var(--brand-primary, #ff7a00);
+}
+
+.video-card-head {
+  display: flex;
   align-items: center;
-  gap: 1px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 122, 0, 0.12);
 }
 
-.v-stat-sub {
-  font-size: 0.65rem;
-  color: var(--text-muted, #8b909f);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.video-card-active .video-card-head {
+  background: rgba(255, 122, 0, 0.22);
 }
 
-.v-stat-main {
-  font-family: var(--font-numeric);
-  font-size: 0.85rem;
+.video-card-name {
+  font-size: 0.74rem;
   font-weight: 700;
-  color: #fff;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--brand-primary, #ff7a00);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.video-card-res {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--text, #fff);
+  flex-shrink: 0;
+}
+
+.video-card-rows {
+  margin: 0;
+}
+
+.video-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  border-top: 1px solid var(--border, #262830);
+  font-size: 0.74rem;
+}
+
+.video-card-row dt {
+  color: var(--text-secondary, #a0a4b0);
+  min-width: 0;
+}
+
+.video-card-row dd {
+  margin: 0;
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--text, #fff);
+  white-space: nowrap;
+}
+
+.video-card-failed .video-card-row dd {
+  color: #ff5f56;
+}
+
+.video-mark {
+  color: var(--brand-primary, #ff7a00);
+  font-weight: 700;
+  padding-left: 1px;
+}
+
+.video-note {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--text-muted, #727682);
+}
+
+.video-row-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(255, 122, 0, 0.25);
+  border-top-color: var(--brand-primary, #ff7a00);
+  border-radius: 50%;
+  animation: ledger-spin 0.7s linear infinite;
+  vertical-align: -1px;
 }
 
 /* ── Calculating QoE Card ──────────────────────────────────────────── */

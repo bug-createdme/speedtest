@@ -465,7 +465,15 @@ export function buildRecord(input) {
     STREAMING_BUFFERING_DURATION: t.streamingResult ? zeroOrNull(t.streamingResult.bufferingDurationMs) : zeroOrNull(t.videoRebuffering),
     STREAMING_REBUFFERING_RATIO: t.streamingResult ? zeroOrNull(t.streamingResult.rebufferingRatio) : null,
     STREAMING_THROUGHPUT_MBPS: t.streamingResult ? zeroOrNull(t.streamingResult.throughputMbps) : null,
-    STREAMING_HIGHEST_QUALITY: t.streamingResult ? strOrNull(t.streamingResult.highestStableQuality) : (t.videoQuality ? `${t.videoQuality}p` : null)
+    STREAMING_HIGHEST_QUALITY: t.streamingResult ? strOrNull(t.streamingResult.highestStableQuality) : (t.videoQuality ? `${t.videoQuality}p` : null),
+    /*
+      The two numbers the per-tier table on screen is built from, averaged and
+      summed across the tiers that played. Null rather than 0 when nothing
+      played, or when no byte source on this device could count - see
+      BYTES_SOURCE in measurement/streaming.js.
+    */
+    STREAMING_PERFORMANCE_RATE: t.streamingResult ? numOrNull(t.streamingResult.performanceRate) : null,
+    STREAMING_DATA_USED_BYTES: t.streamingResult ? numOrNull(t.streamingResult.bytesUsed) : null
   };
 }
 
