@@ -106,6 +106,8 @@ in the assets directory — no endpoint required.
 cp test-assets/browse-sample.html test-assets/video-*.mp4 <assets_path>/
 ```
 
+Đưa lên một server đang chạy: [deploy-update.md](deploy-update.md).
+
 Go's `http.FileServer` does not compress, which is what the measurement needs
 (see the warning below). Range requests are supported, which the video needs.
 

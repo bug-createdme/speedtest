@@ -7,6 +7,9 @@ Trước khi bắt đầu, đọc [architecture.md §3](architecture.md) về **
 server phải công khai và trung lập — đặt sai chỗ thì số đo vẫn ra, chỉ là vô
 nghĩa cho việc so ba nhà mạng.
 
+Stack **đã dựng rồi** và chỉ cần đưa một thay đổi lên thì dùng
+[deploy-update.md](deploy-update.md) thay cho file này.
+
 ---
 
 ## 0 · Chuẩn bị
