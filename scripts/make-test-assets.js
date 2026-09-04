@@ -185,6 +185,22 @@ function reportVideo(videoPath) {
   }
 }
 
+const QUALITIES = [
+  { name: "video-sample.mp4", size: "1280x720", crf: 23, duration: VIDEO_SECONDS },
+  { name: "video-360p.mp4", size: "640x360", crf: 28, duration: 6 },
+  { name: "video-720p.mp4", size: "1280x720", crf: 23, duration: 6 },
+  { name: "video-1080p.mp4", size: "1920x1080", crf: 20, duration: 6 }
+];
+
+function ffmpegArgsFor(q, outPath) {
+  return (
+    "-y -f lavfi -i testsrc=size=" + q.size + ":rate=30:duration=" + q.duration +
+    " -f lavfi -i sine=frequency=440:duration=" + q.duration +
+    " -c:v libx264 -preset medium -crf " + q.crf + " -pix_fmt yuv420p -c:a aac -b:a 128k" +
+    " -movflags +faststart " + outPath
+  );
+}
+
 function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
@@ -193,40 +209,43 @@ function main() {
   fs.writeFileSync(pagePath, page);
   log("browse-sample.html  " + page.length.toLocaleString() + " bytes");
 
-  const videoPath = path.join(OUT_DIR, VIDEO_NAME);
-  if (fs.existsSync(videoPath)) {
-    log(VIDEO_NAME + " already present, left alone");
-  } else if (haveFfmpeg()) {
-    log("ffmpeg found, generating a " + VIDEO_SECONDS + "s 720p clip...");
-    execSync("ffmpeg " + ffmpegArgs('"' + videoPath + '"'), { stdio: "pipe" });
-    reportVideo(videoPath);
-  } else if (haveDocker()) {
-    /*
-      No ffmpeg on the machine, but Docker is here - so borrow one rather than
-      ask somebody to install a media toolchain to produce a ten-second test
-      clip. Nothing is left on the host afterwards.
-    */
-    log("no ffmpeg; using a container instead...");
-    execSync(
-      'docker run --rm -v "' + OUT_DIR + '":/out linuxserver/ffmpeg:latest ' +
-        ffmpegArgs("/out/" + VIDEO_NAME),
-      { stdio: "pipe", env: { ...process.env, MSYS_NO_PATHCONV: "1" } }
-    );
-    reportVideo(videoPath);
-  } else {
-    log("\x1b[33mffmpeg not found - the video sample was NOT created.\x1b[0m");
+  const hasFfmpeg = haveFfmpeg();
+  const hasDocker = !hasFfmpeg && haveDocker();
+
+  for (const q of QUALITIES) {
+    const videoPath = path.join(OUT_DIR, q.name);
+    if (fs.existsSync(videoPath)) {
+      log(q.name + " already present, left alone");
+    } else if (hasFfmpeg) {
+      log("ffmpeg found, generating " + q.name + " (" + q.size + ")...");
+      try {
+        execSync("ffmpeg " + ffmpegArgsFor(q, '"' + videoPath + '"'), { stdio: "pipe" });
+        reportVideo(videoPath);
+      } catch (e) {
+        log("Failed generating " + q.name + ": " + e.message);
+      }
+    } else if (hasDocker) {
+      log("using docker container for " + q.name + "...");
+      try {
+        execSync(
+          'docker run --rm -v "' + OUT_DIR + '":/out linuxserver/ffmpeg:latest ' +
+            ffmpegArgsFor(q, "/out/" + q.name),
+          { stdio: "pipe", env: { ...process.env, MSYS_NO_PATHCONV: "1" } }
+        );
+        reportVideo(videoPath);
+      } catch (e) {
+        log("Failed docker generation for " + q.name + ": " + e.message);
+      }
+    }
+  }
+
+  if (!hasFfmpeg && !hasDocker) {
+    log("\x1b[33mffmpeg not found - the video samples were NOT created.\x1b[0m");
     console.log(
-      "\nProduce it on a machine that has ffmpeg, or drop in any clip meeting:\n" +
+      "\nProduce them on a machine that has ffmpeg, or drop in any clip meeting:\n" +
         "  - MP4, H.264 video + AAC audio\n" +
-        "  - about " + VIDEO_SECONDS + "s, 720p\n" +
-        "  - faststart: the moov atom at the FRONT of the file. Without it playback\n" +
-        "    cannot begin until the whole clip has arrived, and every measurement\n" +
-        "    reads as one long buffering event instead of a time-to-play.\n\n" +
-        "  ffmpeg -f lavfi -i testsrc=size=1280x720:rate=30:duration=" + VIDEO_SECONDS + " \\\n" +
-        "         -f lavfi -i sine=frequency=440:duration=" + VIDEO_SECONDS + " \\\n" +
-        "         -c:v libx264 -crf 23 -pix_fmt yuv420p -c:a aac -b:a 128k \\\n" +
-        "         -movflags +faststart test-assets/" + VIDEO_NAME + "\n\n" +
-        "  Then check it: the file must be served with CORS and Accept-Ranges.\n"
+        "  - faststart: the moov atom at the FRONT of the file.\n\n" +
+        "  Then check it: the files must be served with CORS and Accept-Ranges.\n"
     );
   }
 

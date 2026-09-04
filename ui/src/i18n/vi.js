@@ -166,7 +166,34 @@ export default {
   "metric.video": "Video",
   "browse.result": "{bytes} KB trong {time} ms",
   "browse.skipped": "Chưa cấu hình",
+  "browse.averageLoadTime": "Thời gian tải trung bình",
+  "browse.successRate": "Tỷ lệ tải thành công",
+  "browse.viewDetails": "Chi tiết các trang đã thử ({count})",
   "video.timeToPlay": "Thời gian bắt đầu phát",
+  "video.startupTime": "Thời gian bắt đầu",
   "video.rebuffering": "Dừng hình",
-  "video.quality": "Chất lượng"
+  "video.bufferingCount": "Số lần chờ đệm",
+  "video.stalls": "lần",
+  "video.throughput": "Tốc độ truyền video",
+  "video.highestQuality": "Chất lượng mượt cao nhất",
+  "video.quality": "Chất lượng",
+
+  "unit.s": "s",
+
+  "status.calculatingQoE": "Đang tính điểm chất lượng trải nghiệm (QoE)",
+  "status.calculating": "Đang đánh giá",
+
+  "grade.excellent": "Rất tốt",
+  "grade.good": "Tốt",
+  "grade.average": "Trung bình",
+  "grade.poor": "Kém",
+  "grade.veryPoor": "Rất kém",
+
+  "qoe.overallTitle": "Chất lượng mạng tổng thể (QoE)",
+  "qoe.score": "Điểm trải nghiệm mạng",
+  "qoe.gradeDesc.excellent": "Trải nghiệm internet mượt mà. Phù hợp xem video 4K, chơi game trực tuyến phản hồi nhanh, gọi video HD và lướt web tức thì.",
+  "qoe.gradeDesc.good": "Trải nghiệm mạng tốt. Xem video HD mượt mà và mở website nhanh chóng với độ trễ thấp.",
+  "qoe.gradeDesc.average": "Chất lượng ở mức trung bình. Xem video độ phân giải tiêu chuẩn và lướt web ổn định, nhưng nội dung nặng có thể phải chờ đệm đôi chút.",
+  "qoe.gradeDesc.poor": "Kết nối chậm. Trang web tải lâu và video thường xuyên bị dừng hình để tải thêm.",
+  "qoe.gradeDesc.veryPoor": "Kết nối rất kém. Độ trễ cao và hay bị gián đoạn, gây khó khăn khi xem video hoặc mở trang web."
 };

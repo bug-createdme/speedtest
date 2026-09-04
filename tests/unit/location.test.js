@@ -81,4 +81,41 @@ describe("parseUserLocation", () => {
       lng: 102.6331
     });
   });
+
+  it("unwraps alternative bridge envelopes (value, location, coords, userLocation)", () => {
+    expect(parseUserLocation({ value: { latitude: 17.9757, longitude: 102.6331 } })).toEqual({
+      lat: 17.9757,
+      lng: 102.6331
+    });
+    expect(parseUserLocation({ location: { lat: 17.9757, lng: 102.6331 } })).toEqual({
+      lat: 17.9757,
+      lng: 102.6331
+    });
+    expect(parseUserLocation({ userLocation: { latitude: 17.9757, longitude: 102.6331 } })).toEqual({
+      lat: 17.9757,
+      lng: 102.6331
+    });
+    expect(parseUserLocation({ data: [{ latitude: 17.9757, longitude: 102.6331 }] })).toEqual({
+      lat: 17.9757,
+      lng: 102.6331
+    });
+  });
+
+  it("extracts accuracy and address fields when present", () => {
+    const res = parseUserLocation({
+      latitude: 17.9693,
+      longitude: 102.6251,
+      accuracy: 15,
+      address: { city: "Viangchan", district: "Muang Xaisettha", country: "Laos" }
+    });
+    expect(res).toEqual({
+      lat: 17.9693,
+      lng: 102.6251,
+      accuracy: 15,
+      city: "Viangchan",
+      district: "Muang Xaisettha",
+      country: "Laos"
+    });
+  });
 });
+

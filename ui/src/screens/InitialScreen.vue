@@ -2,7 +2,7 @@
 import { computed, onMounted } from "vue";
 import StartButton from "../components/StartButton.vue";
 import { useI18n } from "../i18n/index.js";
-import { fetchLocation } from "../context/location.js";
+import { fetchLocation, requestLocationPermission } from "../context/location.js";
 import { fetchClientIp, test } from "../state/test.js";
 import { SCREEN, connectionType, goTo } from "../state/ui.js";
 
@@ -13,8 +13,15 @@ onMounted(() => {
   if (!test.ip) {
     fetchClientIp();
   }
+  requestLocationPermission();
+  /*
+    Fire-and-forget, and deliberately generous: nothing waits on this, and the
+    time the user spends looking at the start screen is the cheapest chance the
+    GPS gets to warm up. Whatever it finds is cached by context/location.js and
+    seeds the run's tracker the moment Start is pressed.
+  */
   if (!test.location) {
-    fetchLocation(10000).then((loc) => {
+    fetchLocation(12000).then((loc) => {
       if (loc) test.location = loc;
     }).catch(() => {});
   }

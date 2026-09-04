@@ -95,9 +95,15 @@ watch(
       test.error = { kind: "no-result" };
       return;
     }
+    /*
+      Last chance: the run finished without a fix. Worth a real attempt rather
+      than a token one - a 3s budget was too short to ever succeed on a cold
+      GPS, so it only ever delayed the result screen without producing a
+      position. The user is waiting on this, so it stays bounded.
+    */
     if (!test.location) {
       try {
-        const loc = await fetchLocation(2500);
+        const loc = await fetchLocation(8000);
         if (loc) test.location = loc;
       } catch (e) {}
     } else if (!test.location.fullAddress) {

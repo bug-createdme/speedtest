@@ -3,9 +3,11 @@ import { reactive, watch } from "vue";
 import { locale } from "../i18n/index.js";
 import { connectionType } from "./ui.js";
 import { compareNetwork, networkSnapshot, watchNetwork } from "../context/network.js";
-import { fetchLocation } from "../context/location.js";
+import { fetchLocation, startLocationTracker, stopLocationTracker, withArea } from "../context/location.js";
 import { getOperatorFromIp, getOperatorFromIsdn, parseIpResponse } from "../context/operator.js";
 import { runStreamingTest } from "../measurement/streaming.js";
+import { runBrowsingTest } from "../measurement/browsing.js";
+import { calculateOverallNetworkScore } from "../measurement/qoe.js";
 import { initBridge, isdn } from "../bridge/windvane.js";
 
 /*
@@ -21,15 +23,16 @@ export const STAGE = {
   IDLE: "idle",
   STARTING: "starting",
   PING: "ping",
-  BROWSE: "browse",
   DOWNLOAD: "download",
   UPLOAD: "upload",
+  BROWSE: "browse",
   /*
     Runs on the main thread after the worker finishes, because time-to-play and
     rebuffering need a real <video> and a Worker has no DOM. See
     measurement/streaming.js.
   */
   VIDEO: "video",
+  CALCULATING: "calculating",
   DONE: "done"
 };
 
@@ -159,6 +162,23 @@ export const test = reactive({
   videoQuality: 0,
   videoProgress: 0,
 
+  /* Web Browsing QoE */
+  browsingResult: null,
+  browsingCurrentSite: "",
+  browsingCurrentUrl: "",
+  browsingCurrentStatus: "",
+  browsingSitesList: [],
+  browsingProgress: 0,
+
+  /* Video Streaming QoE */
+  streamingResult: null,
+  streamingCurrentQuality: "",
+  streamingProgress: 0,
+  streamingLiveStats: null,
+
+  /* Overall QoE Score */
+  qoeResult: null,
+
   dlProgress: 0,
   ulProgress: 0,
   pingProgress: 0,
@@ -206,6 +226,7 @@ export const test = reactive({
     avoids. Null until this run's own fix arrives, and null if it never does.
   */
   location: null,
+  locationPromise: null,
 
   error: null
 });
@@ -223,9 +244,14 @@ const UI_SETTING_KEYS = [
   "record_endpoint",
   "export_endpoint",
   "area_table_url",
+  "browsing_enabled",
+  "browsing_sites",
+  "video_enabled",
   "video_url",
   "video_play_seconds",
-  "video_timeout"
+  "video_timeout",
+  "video_test_qualities",
+  "qoe_weights"
 ];
 export const uiSettings = {
   windvane_sdk_url: "",
@@ -241,10 +267,20 @@ export const uiSettings = {
      without an administrative area rather than with a guessed one - see
      context/geo.js. */
   area_table_url: "",
-  /* Empty skips the video stage entirely - nothing here invents a URL. */
+  browsing_enabled: true,
+  browsing_sites: [],
+  video_enabled: true,
   video_url: "",
-  video_play_seconds: 10,
-  video_timeout: 30000
+  video_play_seconds: 4,
+  video_timeout: 15000,
+  video_test_qualities: [],
+  qoe_weights: {
+    download: 0.25,
+    upload: 0.10,
+    latency: 0.15,
+    browsing: 0.20,
+    streaming: 0.30
+  }
 };
 let instance = null;
 let selectionPoll = null;
@@ -293,6 +329,7 @@ function pushSample(list, value) {
 }
 
 function resetRun() {
+  stopLocationTracker();
   test.download = 0;
   test.upload = 0;
   test.ping = 0;
@@ -330,6 +367,17 @@ function resetRun() {
   test.videoTotal = 0;
   test.videoQuality = 0;
   test.videoProgress = 0;
+  test.browsingResult = null;
+  test.browsingCurrentSite = "";
+  test.browsingCurrentUrl = "";
+  test.browsingCurrentStatus = "";
+  test.browsingSitesList = [];
+  test.browsingProgress = 0;
+  test.streamingResult = null;
+  test.streamingCurrentQuality = "";
+  test.streamingProgress = 0;
+  test.streamingLiveStats = null;
+  test.qoeResult = null;
   test.dlProgress = 0;
   test.ulProgress = 0;
   test.pingProgress = 0;
@@ -341,6 +389,7 @@ function resetRun() {
   test.netEnd = null;
   test.invalid = null;
   test.location = null;
+  test.locationPromise = null;
   test.error = null;
 }
 
@@ -610,6 +659,7 @@ function stopVisibilityWatch() {
 }
 
 function failBackgrounded() {
+  stopLocationTracker();
   stopStallWatch();
   stopVisibilityWatch();
   const stage = test.stage;
@@ -648,6 +698,7 @@ function failBackgrounded() {
   server - the two facts that tell a dead test point apart from a dead link.
 */
 function failOffline() {
+  stopLocationTracker();
   stopStallWatch();
   stopVisibilityWatch();
   const stage = test.stage;
@@ -668,6 +719,7 @@ function failOffline() {
 }
 
 function failStalled() {
+  stopLocationTracker();
   stopStallWatch();
   stopVisibilityWatch();
   const stage = test.stage;
@@ -695,53 +747,130 @@ function failStalled() {
 }
 
 /*
-  The video stage, and the end of the run.
+  Main-thread test abort controllers.
+*/
+let browsingAbort = null;
+let streamingAbort = null;
 
-  Split out of onend so the "worker finished" path and the "everything
-  finished" path are separate things with separate names - they were the same
-  line before the video stage existed, and conflating them again is how a
-  result gets stored before the last measurement is in it.
+/*
+  The web browsing stage (main thread).
+  Measures page load times, DNS, TCP, TLS, TTFB across representative websites.
+*/
+async function runBrowsingStage() {
+  if (uiSettings.browsing_enabled === false) return;
+  const sites =
+    uiSettings.browsing_sites && uiSettings.browsing_sites.length > 0
+      ? uiSettings.browsing_sites
+      : undefined;
+
+  test.stage = STAGE.BROWSE;
+  test.browsingProgress = 0;
+  browsingAbort = new AbortController();
+
+  try {
+    const serverUrl = test.usedServer ? test.usedServer.server : "";
+    const result = await runBrowsingTest({
+      sites,
+      serverUrl,
+      signal: browsingAbort.signal,
+      onProgress: (info) => {
+        test.browsingProgress = info.progress || 0;
+        test.browseProgress = info.progress || 0;
+        test.browsingCurrentSite = info.currentSite || "";
+        test.browsingCurrentUrl = info.currentUrl || "";
+        test.browsingCurrentStatus = info.currentStatus || "";
+        test.browsingSitesList = info.sites || [];
+      }
+    });
+    test.browsingResult = result;
+    test.browseStatus = result.status;
+    test.browseTime = result.averageLoadTime;
+    test.browseProgress = 1;
+    test.browsingProgress = 1;
+  } catch (e) {
+    test.browseStatus = "Error";
+    test.browsingResult = { status: "Error", score: 0, averageLoadTime: 0, sites: [] };
+  } finally {
+    browsingAbort = null;
+  }
+}
+
+/*
+  The video streaming stage (main thread).
+  Simulates multi-quality video playback (360p, 720p, 1080p).
 */
 async function runVideoStage() {
-  if (!uiSettings.video_url) return;
+  if (uiSettings.video_enabled === false) return;
+  const hasQualities =
+    uiSettings.video_test_qualities && uiSettings.video_test_qualities.length > 0;
+  if (!hasQualities && !uiSettings.video_url) return;
+
   test.stage = STAGE.VIDEO;
   test.videoProgress = 0;
+  test.streamingProgress = 0;
+  streamingAbort = new AbortController();
+
   try {
     const result = await runStreamingTest({
       url: uiSettings.video_url,
-      playSeconds: Number(uiSettings.video_play_seconds) || 10,
-      timeoutMs: Number(uiSettings.video_timeout) || 30000,
-      onProgress: (value) => {
+      qualities: hasQualities ? uiSettings.video_test_qualities : undefined,
+      playSeconds: Number(uiSettings.video_play_seconds) || 4,
+      timeoutMs: Number(uiSettings.video_timeout) || 15000,
+      signal: streamingAbort.signal,
+      onProgress: (value, liveStats) => {
         test.videoProgress = value;
+        test.streamingProgress = value;
+        if (liveStats) {
+          test.streamingLiveStats = liveStats;
+          if (liveStats.quality) test.streamingCurrentQuality = liveStats.quality;
+          if (liveStats.startupTimeMs) test.videoTimeToPlay = liveStats.startupTimeMs;
+          if (liveStats.bufferingCount !== undefined) test.videoRebufferCount = liveStats.bufferingCount;
+        }
       }
     });
+    test.streamingResult = result;
     test.videoStatus = result.status;
     test.videoTimeToPlay = result.timeToPlayMs === null ? 0 : result.timeToPlayMs;
     test.videoRebuffering = result.rebufferingMs === null ? 0 : result.rebufferingMs;
     test.videoRebufferCount = result.rebufferCount === null ? 0 : result.rebufferCount;
     test.videoTotal = result.totalMs === null ? 0 : result.totalMs;
     test.videoQuality = result.quality === null ? 0 : result.quality;
+    test.streamingCurrentQuality = result.highestStableQuality || "";
   } catch (e) {
-    /*
-      runStreamingTest resolves rather than rejecting, so reaching here means
-      something outside it went wrong. A broken video stage must not lose the
-      speed measurements that already succeeded.
-    */
     test.videoStatus = "Error";
+    test.streamingResult = { status: "Error", score: 0 };
+  } finally {
+    streamingAbort = null;
   }
   test.videoProgress = 1;
+  test.streamingProgress = 1;
+}
+
+/*
+  Calculate Overall QoE Score and component ratings.
+*/
+function calculateQoEStage() {
+  test.stage = STAGE.CALCULATING;
+  const qoe = calculateOverallNetworkScore({
+    download: test.download,
+    upload: test.upload,
+    ping: test.ping,
+    jitter: test.jitter,
+    dlPing: test.dlPing,
+    ulPing: test.ulPing,
+    probeLoss: test.probeLoss,
+    browsingScore: test.browsingResult?.score,
+    streamingScore: test.streamingResult?.score,
+    weights: uiSettings.qoe_weights
+  });
+  test.qoeResult = qoe;
 }
 
 function finishRun() {
+  stopLocationTracker();
   stopVisibilityWatch();
   test.running = false;
   test.aborted = false;
-  /*
-    Second network snapshot, taken now rather than when the worker stopped, so
-    it covers the video stage too - and taken BEFORE the stage flips to DONE,
-    because that flip is what App.vue watches to store the result. The verdict
-    has to be on `test` by the time it reads it.
-  */
   test.netEnd = networkSnapshot();
   test.invalid = compareNetwork(test.netStart, test.netEnd);
   test.stage = STAGE.DONE;
@@ -786,19 +915,53 @@ export function startTest() {
   test.stage = STAGE.STARTING;
 
   /*
-    Ask for the position now, at the start of the run, and let it arrive on its
-    own. Fire-and-forget for the same reason the bridge init is (see
-    windvane.js): blocking Start behind a locate - which can prompt for a
-    permission and take seconds - is the disabled-UI-waiting-on-a-network-call
-    defect this project set out to remove. The measurement takes ~30s, so the
-    fix is almost always back by the time the record is built; a run that
-    finishes before it is stored with a null position rather than delayed.
+    Track the position across the whole measurement.
+
+    The tracker seeds from a recent start-screen fix so the run is never
+    position-less while its own first locate is in flight, then replaces that
+    seed with the first fix it obtains for itself.
+
+    Accuracy only decides between two fixes of equal standing. It cannot be the
+    whole test: the super-app bridge reports no accuracy at all (see
+    docs/bridge.md), so `fix.accuracy && ...` is false for every bridge fix -
+    which would let a seeded fix outlive every fresh one for the rest of the
+    run, pinning the record to where the phone was before Start was pressed.
   */
-  fetchLocation()
-    .then((loc) => {
-      test.location = loc;
-    })
-    .catch(() => {});
+  let runHasOwnFix = false;
+  let locationGen = 0;
+  startLocationTracker((fix, fromSeed) => {
+    if (!fix) return;
+    const better =
+      !test.location ||
+      /* the run's own first fix always supersedes the seed */
+      (!fromSeed && !runHasOwnFix) ||
+      (Number.isFinite(fix.accuracy) &&
+        (!Number.isFinite(test.location.accuracy) || fix.accuracy < test.location.accuracy));
+    if (!better) return;
+    if (!fromSeed) runHasOwnFix = true;
+
+    const gen = ++locationGen;
+    test.location = {
+      lat: fix.lat,
+      lng: fix.lng,
+      accuracy: fix.accuracy !== undefined ? fix.accuracy : (test.location?.accuracy || null),
+      aal1: fix.aal1 || fix.city || test.location?.aal1 || null,
+      aal2: fix.aal2 || fix.district || test.location?.aal2 || null,
+      locality: fix.locality || fix.city || test.location?.locality || null,
+      fullAddress: fix.fullAddress || test.location?.fullAddress || null,
+      country: fix.country || test.location?.country || "Laos"
+    };
+    withArea(fix)
+      .then((enriched) => {
+        /* A better fix may have landed while the reverse-geocode was in
+           flight; its coordinates must not be overwritten by this one's
+           address. */
+        if (enriched && gen === locationGen) {
+          test.location = enriched;
+        }
+      })
+      .catch(() => {});
+  });
 
   /*
     If selection has not finished yet, fall back to the first server in the
@@ -956,7 +1119,7 @@ export function startTest() {
     noteProgress();
   };
 
-  instance.onend = (aborted) => {
+  instance.onend = async (aborted) => {
     stopStallWatch();
     if (aborted) {
       stopVisibilityWatch();
@@ -968,19 +1131,25 @@ export function startTest() {
       return;
     }
     /*
-      The worker is finished, the RUN is not.
-
-      The video stage cannot live in the worker - time-to-play and rebuffering
-      need a real <video> and a Worker has no DOM - so it runs here, after the
-      transfers, on the same link. test.running stays true through it: it is
-      still a measurement in progress, and letting it drop would re-enable the
-      Start button mid-run.
-
-      The stall watchdog is stopped because it watches the worker's progress
-      fractions, which no longer move. runStreamingTest has its own timeout and
-      resolves rather than rejecting, so this cannot hang on it.
+      Worker speed tests (Ping, Download, Upload) finished.
+      Now sequentially execute QoE tests on the main thread:
+        1. Web Browsing Test
+        2. Video Streaming Test
+        3. Calculate Overall QoE Score
     */
-    runVideoStage().then(finishRun);
+    try {
+      if (!test.aborted) {
+        await runBrowsingStage();
+      }
+      if (!test.aborted) {
+        await runVideoStage();
+      }
+      if (!test.aborted) {
+        calculateQoEStage();
+      }
+    } finally {
+      finishRun();
+    }
   };
 
   /*
@@ -994,13 +1163,26 @@ export function startTest() {
 }
 
 export function abortTest() {
-  if (!instance || !test.running) return;
+  if (!test.running) return;
+  stopLocationTracker();
   stopStallWatch();
   stopVisibilityWatch();
-  try {
-    instance.abort();
-  } catch (e) {
-    // abort() throws if the worker already finished between the click and here.
+  if (browsingAbort) {
+    try {
+      browsingAbort.abort();
+    } catch (e) {}
+  }
+  if (streamingAbort) {
+    try {
+      streamingAbort.abort();
+    } catch (e) {}
+  }
+  if (instance) {
+    try {
+      instance.abort();
+    } catch (e) {
+      // abort() throws if the worker already finished between the click and here.
+    }
   }
   test.running = false;
   test.aborted = true;
@@ -1025,10 +1207,18 @@ export function hasResult() {
   reads as a run that got stuck rather than a stage that was never enabled.
 */
 export function availableStages() {
-  const stages = [STAGE.PING];
-  if (engineSettings.url_browse) stages.push(STAGE.BROWSE);
-  stages.push(STAGE.DOWNLOAD, STAGE.UPLOAD);
-  if (uiSettings.video_url) stages.push(STAGE.VIDEO);
+  const stages = [STAGE.PING, STAGE.DOWNLOAD, STAGE.UPLOAD];
+  const hasBrowsing =
+    uiSettings.browsing_enabled !== false &&
+    ((uiSettings.browsing_sites && uiSettings.browsing_sites.length > 0) ||
+      engineSettings.url_browse);
+  if (hasBrowsing) stages.push(STAGE.BROWSE);
+
+  const hasVideo =
+    uiSettings.video_enabled !== false &&
+    ((uiSettings.video_test_qualities && uiSettings.video_test_qualities.length > 0) ||
+      uiSettings.video_url);
+  if (hasVideo) stages.push(STAGE.VIDEO);
   return stages;
 }
 

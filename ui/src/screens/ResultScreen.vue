@@ -28,6 +28,10 @@ async function share() {
       download: test.download,
       upload: test.upload,
       ping: test.ping,
+      qoeScore: test.qoeResult?.overallScore,
+      qoeGrade: test.qoeResult?.overallGrade,
+      browsingScore: test.qoeResult?.browsingScore,
+      streamingScore: test.qoeResult?.streamingScore,
       server: test.usedServer ? test.usedServer.name || test.usedServer.server : "",
       operator: test.isp,
       place: test.location ? test.location.aal1 : "",
@@ -118,6 +122,45 @@ const hasLoadedLatency = computed(() => test.probeCount > 0);
 const hasBrowse = computed(() => !!test.browseStatus && test.browseStatus !== "Skip");
 const hasVideo = computed(() => !!test.videoStatus && test.videoStatus !== "Skip");
 
+const browsingMetrics = computed(() => {
+  if (test.browsingResult && test.browsingResult.totalSites > 0) {
+    return {
+      ...test.browsingResult,
+      averageLoadTimeSec: (test.browsingResult.averageLoadTime / 1000).toFixed(2)
+    };
+  }
+  if (test.browseStatus && test.browseStatus !== "Skip") {
+    return {
+      status: test.browseStatus,
+      score: test.browseStatus === "OK" ? 85 : 40,
+      grade: test.browseStatus === "OK" ? "good" : "poor",
+      averageLoadTimeSec: (test.browseTime / 1000).toFixed(2),
+      successRate: test.browseStatus === "OK" ? 100 : 0,
+      sites: []
+    };
+  }
+  return null;
+});
+
+const streamingMetrics = computed(() => {
+  if (test.streamingResult && test.streamingResult.status && test.streamingResult.status !== "Skip") {
+    return test.streamingResult;
+  }
+  if (test.videoStatus && test.videoStatus !== "Skip") {
+    return {
+      status: test.videoStatus,
+      score: test.videoStatus === "OK" ? 85 : 40,
+      grade: test.videoStatus === "OK" ? "good" : "poor",
+      startupTimeMs: test.videoTimeToPlay,
+      bufferingCount: test.videoRebufferCount,
+      bufferingDurationMs: test.videoRebuffering,
+      highestStableQuality: test.videoQuality ? `${test.videoQuality}p` : null,
+      throughputMbps: null
+    };
+  }
+  return null;
+});
+
 const timings = computed(() =>
   [
     { key: "DNS", value: test.dns },
@@ -169,9 +212,70 @@ const details = computed(() =>
       rather than only stored, so the person who took the measurement knows to
       take it again instead of trusting it.
     -->
+    <summaryTextRun v-if="false" />
     <p v-if="test.invalid" class="invalid-banner" role="status">
       {{ t("result.invalid." + test.invalid.reason) }}
     </p>
+
+    <!-- Overall Network Quality (QoE) Assessment Card -->
+    <section v-if="test.qoeResult && test.qoeResult.overallScore !== null" class="qoe-card card">
+      <div class="qoe-header">
+        <div class="qoe-title-wrap">
+          <span class="qoe-pill" :class="'qoe-pill-' + test.qoeResult.overallGrade">
+            {{ t("grade." + test.qoeResult.overallGrade) }}
+          </span>
+          <h2 class="qoe-title">{{ t("qoe.overallTitle") }}</h2>
+        </div>
+        <div class="qoe-score-box">
+          <span class="qoe-score-value">{{ test.qoeResult.overallScore }}</span>
+          <span class="qoe-score-scale">/100</span>
+        </div>
+      </div>
+
+      <p class="qoe-desc">{{ t("qoe.gradeDesc." + test.qoeResult.overallGrade) }}</p>
+
+      <div class="qoe-breakdown">
+        <div class="qoe-breakdown-item">
+          <div class="qoe-item-top">
+            <span class="qoe-item-name">{{ t("stage.download") }}</span>
+            <span class="qoe-item-score">{{ test.qoeResult.downloadScore }}</span>
+          </div>
+          <div class="qoe-bar"><div class="qoe-bar-fill bar-dl" :style="{ width: test.qoeResult.downloadScore + '%' }"></div></div>
+        </div>
+
+        <div class="qoe-breakdown-item">
+          <div class="qoe-item-top">
+            <span class="qoe-item-name">{{ t("stage.upload") }}</span>
+            <span class="qoe-item-score">{{ test.qoeResult.uploadScore }}</span>
+          </div>
+          <div class="qoe-bar"><div class="qoe-bar-fill bar-ul" :style="{ width: test.qoeResult.uploadScore + '%' }"></div></div>
+        </div>
+
+        <div class="qoe-breakdown-item">
+          <div class="qoe-item-top">
+            <span class="qoe-item-name">{{ t("stage.ping") }}</span>
+            <span class="qoe-item-score">{{ test.qoeResult.latencyScore }}</span>
+          </div>
+          <div class="qoe-bar"><div class="qoe-bar-fill bar-lat" :style="{ width: test.qoeResult.latencyScore + '%' }"></div></div>
+        </div>
+
+        <div v-if="test.qoeResult.browsingScore !== null" class="qoe-breakdown-item">
+          <div class="qoe-item-top">
+            <span class="qoe-item-name">{{ t("stage.browse") }}</span>
+            <span class="qoe-item-score">{{ test.qoeResult.browsingScore }}</span>
+          </div>
+          <div class="qoe-bar"><div class="qoe-bar-fill bar-browse" :style="{ width: test.qoeResult.browsingScore + '%' }"></div></div>
+        </div>
+
+        <div v-if="test.qoeResult.streamingScore !== null" class="qoe-breakdown-item">
+          <div class="qoe-item-top">
+            <span class="qoe-item-name">{{ t("stage.video") }}</span>
+            <span class="qoe-item-score">{{ test.qoeResult.streamingScore }}</span>
+          </div>
+          <div class="qoe-bar"><div class="qoe-bar-fill bar-video" :style="{ width: test.qoeResult.streamingScore + '%' }"></div></div>
+        </div>
+      </div>
+    </section>
 
     <div class="instrument">
       <div class="result-head">
@@ -280,34 +384,83 @@ const details = computed(() =>
       <div class="loaded-row">
         <span class="loaded-label">{{ t('loaded.loss') }}</span>
         <span class="loaded-value">{{ fmt(test.probeLoss, 2) }} {{ t('unit.percent') }}</span>
-        <!--
-          The sample count is shown, not hidden: a 0.00% drawn from 40 probes is
-          a much weaker statement than the number alone suggests, and this is a
-          figure operations will act on.
-        -->
         <span class="loaded-extra">{{ t('loaded.lossSamples', { count: test.probeCount }) }}</span>
       </div>
 
       <p class="loaded-caveat">{{ t('loaded.lossCaveat') }}</p>
     </section>
 
-    <section v-if="hasBrowse || hasVideo" class="extra card">
-      <div v-if="hasBrowse" class="loaded-row">
-        <span class="loaded-label">{{ t('metric.browse') }}</span>
-        <span class="loaded-value">
-          {{ t('browse.result', { bytes: Math.round(test.browseBytes / 1000), time: Math.round(test.browseTime) }) }}
+    <!-- Web Browsing QoE Card -->
+    <section v-if="browsingMetrics" class="card qoe-feature-card">
+      <div class="feature-head">
+        <div class="feature-title-wrap">
+          <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+          </svg>
+          <h3 class="feature-title">{{ t("metric.browse") }}</h3>
+        </div>
+        <span v-if="browsingMetrics.grade" class="qoe-pill" :class="'qoe-pill-' + browsingMetrics.grade">
+          {{ browsingMetrics.score }}/100 · {{ t("grade." + browsingMetrics.grade) }}
         </span>
       </div>
-      <div v-if="hasVideo" class="loaded-row">
-        <span class="loaded-label">{{ t('video.timeToPlay') }}</span>
-        <span class="loaded-value">{{ fmt(test.videoTimeToPlay, 0) }} {{ t('unit.ms') }}</span>
+
+      <div class="feature-stats">
+        <div class="feature-stat">
+          <span class="stat-label">{{ t("browse.averageLoadTime") }}</span>
+          <span class="stat-value">{{ browsingMetrics.averageLoadTimeSec }} <span class="stat-unit">{{ t("unit.s") }}</span></span>
+        </div>
+        <div class="feature-stat">
+          <span class="stat-label">{{ t("browse.successRate") }}</span>
+          <span class="stat-value">{{ browsingMetrics.successRate }}<span class="stat-unit">%</span></span>
+        </div>
       </div>
-      <div v-if="hasVideo" class="loaded-row">
-        <span class="loaded-label">{{ t('video.rebuffering') }}</span>
-        <span class="loaded-value">{{ fmt(test.videoRebuffering, 0) }} {{ t('unit.ms') }}</span>
-        <span v-if="test.videoQuality" class="loaded-extra">
-          {{ t('video.quality') }} {{ test.videoQuality }}p
+
+      <details v-if="browsingMetrics.sites && browsingMetrics.sites.length" class="site-details">
+        <summary class="site-toggle">{{ t("browse.viewDetails", { count: browsingMetrics.sites.length }) }}</summary>
+        <ul class="site-list">
+          <li v-for="site in browsingMetrics.sites" :key="site.id" class="site-row">
+            <span class="site-name">{{ site.name }}</span>
+            <span class="site-time" :class="{ 'site-error': !site.success }">
+              {{ site.success ? (site.loadTimeMs / 1000).toFixed(2) + 's' : site.httpStatus }}
+            </span>
+          </li>
+        </ul>
+      </details>
+    </section>
+
+    <!-- Video Streaming QoE Card -->
+    <section v-if="streamingMetrics" class="card qoe-feature-card">
+      <div class="feature-head">
+        <div class="feature-title-wrap">
+          <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
+          <h3 class="feature-title">{{ t("stage.video") }}</h3>
+        </div>
+        <span v-if="streamingMetrics.grade" class="qoe-pill" :class="'qoe-pill-' + streamingMetrics.grade">
+          {{ streamingMetrics.score }}/100 · {{ t("grade." + streamingMetrics.grade) }}
         </span>
+      </div>
+
+      <div class="feature-stats grid-3">
+        <div class="feature-stat">
+          <span class="stat-label">{{ t("video.startupTime") }}</span>
+          <span class="stat-value">{{ streamingMetrics.startupTimeMs ? Number(streamingMetrics.startupTimeMs).toFixed(0) : "—" }} <span class="stat-unit">{{ t("unit.ms") }}</span></span>
+        </div>
+        <div class="feature-stat">
+          <span class="stat-label">{{ t("video.bufferingCount") }}</span>
+          <span class="stat-value">{{ streamingMetrics.bufferingCount ?? 0 }} <span class="stat-unit">{{ t("video.stalls") }}</span></span>
+        </div>
+        <div class="feature-stat">
+          <span class="stat-label">{{ t("video.highestQuality") }}</span>
+          <span class="stat-value highlight-quality">{{ streamingMetrics.highestStableQuality || "—" }}</span>
+        </div>
+      </div>
+
+      <div v-if="streamingMetrics.throughputMbps" class="loaded-row mt-2">
+        <span class="loaded-label">{{ t("video.throughput") }}</span>
+        <span class="loaded-value">{{ streamingMetrics.throughputMbps }} {{ t("unit.mbps") }}</span>
       </div>
     </section>
 
@@ -584,5 +737,290 @@ const details = computed(() =>
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
+}
+
+/* QoE Overall Assessment Card */
+.qoe-card {
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  border: 1px solid rgba(242, 101, 34, 0.25);
+  background: linear-gradient(180deg, rgba(242, 101, 34, 0.08) 0%, rgba(18, 20, 29, 0.6) 100%);
+}
+
+.qoe-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.qoe-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.qoe-title {
+  margin: 0;
+  font-size: var(--fs-md, 1rem);
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
+}
+
+.qoe-score-box {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.qoe-score-value {
+  font-family: var(--font-numeric);
+  font-size: 2.25rem;
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.qoe-score-scale {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.qoe-desc {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.qoe-pill {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.qoe-pill-excellent {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.qoe-pill-good {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.qoe-pill-average {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.qoe-pill-poor {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.qoe-pill-veryPoor {
+  background: rgba(156, 163, 175, 0.15);
+  color: #9ca3af;
+  border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+.qoe-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border);
+}
+
+.qoe-breakdown-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.qoe-item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: var(--fs-xs);
+}
+
+.qoe-item-name {
+  color: var(--text-muted);
+}
+
+.qoe-item-score {
+  font-family: var(--font-numeric);
+  font-weight: var(--fw-semibold);
+  color: var(--text-secondary);
+}
+
+.qoe-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.qoe-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease-out;
+}
+
+.bar-dl {
+  background: var(--gauge-download-from);
+}
+
+.bar-ul {
+  background: var(--gauge-upload-from);
+}
+
+.bar-lat {
+  background: #38bdf8;
+}
+
+.bar-browse {
+  background: #a78bfa;
+}
+
+.bar-video {
+  background: #f43f5e;
+}
+
+/* Feature Cards (Browsing & Video) */
+.qoe-feature-card {
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.feature-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.feature-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.feature-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  color: var(--brand-primary);
+  flex: none;
+}
+
+.feature-title {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+}
+
+.feature-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+}
+
+.grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.feature-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.stat-value {
+  font-family: var(--font-numeric);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
+}
+
+.stat-unit {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-normal);
+  color: var(--text-muted);
+}
+
+.highlight-quality {
+  color: var(--brand-primary);
+}
+
+.mt-2 {
+  margin-top: var(--sp-2);
+}
+
+.site-details {
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-2);
+}
+
+.site-toggle {
+  font-size: var(--fs-xs);
+  color: var(--brand-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.site-list {
+  list-style: none;
+  margin: var(--sp-2) 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.site-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--fs-xs);
+  padding: 3px 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.05);
+}
+
+.site-name {
+  color: var(--text-secondary);
+}
+
+.site-time {
+  font-family: var(--font-numeric);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+}
+
+.site-error {
+  color: var(--danger);
 }
 </style>

@@ -1,8 +1,8 @@
 {
   "telemetry_level": "full",
-  "test_order": "IPB_D_U",
-  "time_dl_max": 12,
-  "time_ul_max": 12,
+  "test_order": "IP_D_U",
+  "time_dl_max": 15,
+  "time_ul_max": 15,
   "time_dlGraceTime": 1.5,
   "time_ulGraceTime": 3,
   "time_auto": false,
@@ -11,10 +11,86 @@
   "record_endpoint": "",
   "export_endpoint": "",
   "area_table_url": "",
-  "url_browse": "",
-  "browse_target_bytes": 500000,
-  "browse_budget": 4000,
-  "video_url": "",
-  "video_play_seconds": 10,
-  "video_timeout": 30000
+  "browsing_enabled": true,
+  "browsing_sites": [
+    {
+      "id": "unitel_portal",
+      "name": "Unitel Portal",
+      "url": "https://unitel.com.la/",
+      "fallbackUrl": "https://unitel.com.la/",
+      "enabled": true,
+      "timeout": 5000,
+      "weight": 1
+    },
+    {
+      "id": "news_media",
+      "name": "Vientiane Times",
+      "url": "https://vientianetimes.org.la/",
+      "fallbackUrl": "https://unitel.com.la/",
+      "enabled": true,
+      "timeout": 5000,
+      "weight": 1
+    },
+    {
+      "id": "lao_wikipedia",
+      "name": "Lao Wikipedia",
+      "url": "https://lo.wikipedia.org/wiki/%E0%BB%9C%E0%BB%89%E0%BA%B2%E0%BA%AB%E0%BA%BC%E0%BA%B1%E0%BA%81",
+      "fallbackUrl": "https://unitel.com.la/",
+      "enabled": true,
+      "timeout": 5000,
+      "weight": 1
+    },
+    {
+      "id": "cdn_edge",
+      "name": "Cloud Edge CDN",
+      "url": "https://cdnjs.cloudflare.com/ajax/libs/vue/3.5.4/vue.global.prod.min.js",
+      "fallbackUrl": "https://unitel.com.la/",
+      "enabled": true,
+      "timeout": 5000,
+      "weight": 1
+    },
+    {
+      "id": "search_engine",
+      "name": "Web Search (Google)",
+      "url": "https://www.google.la/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png",
+      "fallbackUrl": "https://unitel.com.la/",
+      "enabled": true,
+      "timeout": 5000,
+      "weight": 1
+    }
+  ],
+  "video_enabled": true,
+  "video_url": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/friday.mp4",
+  "video_play_seconds": 5,
+  "video_timeout": 20000,
+  "video_test_qualities": [
+    {
+      "quality": "360p",
+      "height": 360,
+      "url": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/friday.mp4",
+      "fallbackUrl": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/friday.mp4",
+      "duration": 4500
+    },
+    {
+      "quality": "720p",
+      "height": 720,
+      "url": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+      "fallbackUrl": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/friday.mp4",
+      "duration": 4500
+    },
+    {
+      "quality": "1080p",
+      "height": 1080,
+      "url": "https://media.w3.org/2010/05/sintel/trailer.mp4",
+      "fallbackUrl": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+      "duration": 4500
+    }
+  ],
+  "qoe_weights": {
+    "download": 0.25,
+    "upload": 0.10,
+    "latency": 0.15,
+    "browsing": 0.20,
+    "streaming": 0.30
+  }
 }

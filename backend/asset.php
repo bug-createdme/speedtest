@@ -72,6 +72,9 @@ if (isset($_SERVER['REQUEST_METHOD']) && 'OPTIONS' === $_SERVER['REQUEST_METHOD'
 $ALLOWED = array(
     'browse-sample.html' => 'text/html; charset=utf-8',
     'video-sample.mp4'   => 'video/mp4',
+    'video-360p.mp4'     => 'video/mp4',
+    'video-720p.mp4'     => 'video/mp4',
+    'video-1080p.mp4'    => 'video/mp4',
 );
 
 $name = isset($_GET['f']) ? (string)$_GET['f'] : '';

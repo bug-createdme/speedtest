@@ -70,11 +70,15 @@ export function summaryText(run) {
     "Upload: " + num(r.upload, 1) + " Mbps",
     "Ping: " + num(r.ping, 0) + " ms"
   ];
-  /*
-    Everything below is omitted when absent rather than printed empty. A shared
-    line reading "Province: -" says the app failed to fill it in; a line that is
-    not there says nothing, which is the truth.
-  */
+  if (r.qoeScore !== undefined && r.qoeScore !== null) {
+    lines.push("Overall QoE: " + r.qoeScore + "/100" + (r.qoeGrade ? " (" + r.qoeGrade + ")" : ""));
+  }
+  if (r.browsingScore !== undefined && r.browsingScore !== null) {
+    lines.push("Web Browsing: " + r.browsingScore + "/100");
+  }
+  if (r.streamingScore !== undefined && r.streamingScore !== null) {
+    lines.push("Video Streaming: " + r.streamingScore + "/100");
+  }
   if (r.server) lines.push("Server: " + r.server);
   if (r.operator) lines.push("Operator: " + r.operator);
   if (r.place) lines.push("Province: " + r.place);

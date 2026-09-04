@@ -518,6 +518,52 @@ describe("device identification", () => {
   });
 });
 
+describe("qoe fields", () => {
+  it("includes QoE, Browsing, and Streaming scores in record output", () => {
+    const r = buildRecord({
+      test: fullRun({
+        qoeResult: {
+          overallScore: 88,
+          overallGrade: "good",
+          downloadScore: 85,
+          uploadScore: 70,
+          latencyScore: 90,
+          browsingScore: 92,
+          streamingScore: 95
+        },
+        browsingResult: {
+          score: 92,
+          grade: "excellent",
+          averageLoadTime: 780,
+          successRate: 100,
+          totalSites: 5
+        },
+        streamingResult: {
+          score: 95,
+          grade: "excellent",
+          startupTimeMs: 420,
+          bufferingCount: 0,
+          bufferingDurationMs: 0,
+          rebufferingRatio: 0,
+          throughputMbps: 18.5,
+          highestStableQuality: "1080p"
+        }
+      })
+    });
+
+    expect(r.QOE_OVERALL_SCORE).toBe(88);
+    expect(r.QOE_OVERALL_GRADE).toBe("good");
+    expect(r.QOE_DOWNLOAD_SCORE).toBe(85);
+    expect(r.BROWSING_SCORE).toBe(92);
+    expect(r.BROWSING_GRADE).toBe("excellent");
+    expect(r.BROWSING_AVG_LOAD_TIME).toBe(780);
+    expect(r.STREAMING_SCORE).toBe(95);
+    expect(r.STREAMING_STARTUP_TIME).toBe(420);
+    expect(r.STREAMING_BUFFERING_COUNT).toBe(0);
+    expect(r.STREAMING_HIGHEST_QUALITY).toBe("1080p");
+  });
+});
+
 describe("csv export", () => {
   it("writes one column per declared field, in declared order", () => {
     const csv = recordsToCsv([buildRecord({ test: fullRun() })]);

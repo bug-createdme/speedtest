@@ -172,7 +172,34 @@ export default {
   "metric.video": "Video",
   "browse.result": "{bytes} KB in {time} ms",
   "browse.skipped": "Not configured",
-  "video.timeToPlay": "Time to play",
+  "browse.averageLoadTime": "Average Load Time",
+  "browse.successRate": "Success Rate",
+  "browse.viewDetails": "Tested sites details ({count})",
+  "video.timeToPlay": "Startup Time",
+  "video.startupTime": "Startup Time",
   "video.rebuffering": "Freezing",
-  "video.quality": "Quality"
+  "video.bufferingCount": "Buffering",
+  "video.stalls": "stalls",
+  "video.throughput": "Streaming Bitrate",
+  "video.highestQuality": "Max Stable Quality",
+  "video.quality": "Quality",
+
+  "unit.s": "s",
+
+  "status.calculatingQoE": "Evaluating Network QoE Score",
+  "status.calculating": "Scoring",
+
+  "grade.excellent": "Excellent",
+  "grade.good": "Good",
+  "grade.average": "Average",
+  "grade.poor": "Poor",
+  "grade.veryPoor": "Very Poor",
+
+  "qoe.overallTitle": "Overall Network Quality",
+  "qoe.score": "Network QoE Score",
+  "qoe.gradeDesc.excellent": "Seamless internet experience. Ideal for 4K video, low-latency online gaming, HD video calls, and instant browsing.",
+  "qoe.gradeDesc.good": "Good internet experience. Smooth HD streaming and responsive web browsing with minimal delay.",
+  "qoe.gradeDesc.average": "Average performance. Standard video and browsing work adequately, but high-bandwidth tasks may occasionally buffer.",
+  "qoe.gradeDesc.poor": "Poor connection. Noticeable webpage loading delays and frequent video buffering.",
+  "qoe.gradeDesc.veryPoor": "Very poor connection. Heavy packet delays and connection timeouts make browsing and streaming severely disrupted."
 };

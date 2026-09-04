@@ -56,6 +56,12 @@ function numOrNull(value) {
   return Number.isFinite(n) && n !== 0 ? n : null;
 }
 
+function zeroOrNull(value) {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 /*
   For the fields where zero is a reading rather than an absence.
 
@@ -433,7 +439,33 @@ export function buildRecord(input) {
     SETUP_DNS: numOrNull(t.dns),
     SETUP_TCP: numOrNull(t.tcp),
     SETUP_TLS: numOrNull(t.tls),
-    SETUP_TTFB: numOrNull(t.ttfb)
+    SETUP_TTFB: numOrNull(t.ttfb),
+
+    /* ── Network Quality of Experience (QoE) ────────────────────────── */
+    QOE_OVERALL_SCORE: t.qoeResult ? zeroOrNull(t.qoeResult.overallScore) : null,
+    QOE_OVERALL_GRADE: t.qoeResult ? strOrNull(t.qoeResult.overallGrade) : null,
+    QOE_DOWNLOAD_SCORE: t.qoeResult ? zeroOrNull(t.qoeResult.downloadScore) : null,
+    QOE_UPLOAD_SCORE: t.qoeResult ? zeroOrNull(t.qoeResult.uploadScore) : null,
+    QOE_LATENCY_SCORE: t.qoeResult ? zeroOrNull(t.qoeResult.latencyScore) : null,
+    QOE_BROWSING_SCORE: t.qoeResult ? zeroOrNull(t.qoeResult.browsingScore) : null,
+    QOE_STREAMING_SCORE: t.qoeResult ? zeroOrNull(t.qoeResult.streamingScore) : null,
+
+    /* ── Web Browsing Extended QoE ──────────────────────────────────── */
+    BROWSING_SCORE: t.browsingResult ? zeroOrNull(t.browsingResult.score) : null,
+    BROWSING_GRADE: t.browsingResult ? strOrNull(t.browsingResult.grade) : null,
+    BROWSING_AVG_LOAD_TIME: t.browsingResult ? zeroOrNull(t.browsingResult.averageLoadTime) : zeroOrNull(t.browseTime),
+    BROWSING_SUCCESS_RATE: t.browsingResult ? zeroOrNull(t.browsingResult.successRate) : null,
+    BROWSING_SITES_COUNT: t.browsingResult ? zeroOrNull(t.browsingResult.totalSites) : null,
+
+    /* ── Video Streaming Extended QoE ───────────────────────────────── */
+    STREAMING_SCORE: t.streamingResult ? zeroOrNull(t.streamingResult.score) : null,
+    STREAMING_GRADE: t.streamingResult ? strOrNull(t.streamingResult.grade) : null,
+    STREAMING_STARTUP_TIME: t.streamingResult ? zeroOrNull(t.streamingResult.startupTimeMs) : zeroOrNull(t.videoTimeToPlay),
+    STREAMING_BUFFERING_COUNT: t.streamingResult ? zeroOrNull(t.streamingResult.bufferingCount) : zeroOrNull(t.videoRebufferCount),
+    STREAMING_BUFFERING_DURATION: t.streamingResult ? zeroOrNull(t.streamingResult.bufferingDurationMs) : zeroOrNull(t.videoRebuffering),
+    STREAMING_REBUFFERING_RATIO: t.streamingResult ? zeroOrNull(t.streamingResult.rebufferingRatio) : null,
+    STREAMING_THROUGHPUT_MBPS: t.streamingResult ? zeroOrNull(t.streamingResult.throughputMbps) : null,
+    STREAMING_HIGHEST_QUALITY: t.streamingResult ? strOrNull(t.streamingResult.highestStableQuality) : (t.videoQuality ? `${t.videoQuality}p` : null)
   };
 }
 
@@ -522,7 +554,27 @@ export const RECORD_FIELDS = [
   "SETUP_DNS",
   "SETUP_TCP",
   "SETUP_TLS",
-  "SETUP_TTFB"
+  "SETUP_TTFB",
+  "QOE_OVERALL_SCORE",
+  "QOE_OVERALL_GRADE",
+  "QOE_DOWNLOAD_SCORE",
+  "QOE_UPLOAD_SCORE",
+  "QOE_LATENCY_SCORE",
+  "QOE_BROWSING_SCORE",
+  "QOE_STREAMING_SCORE",
+  "BROWSING_SCORE",
+  "BROWSING_GRADE",
+  "BROWSING_AVG_LOAD_TIME",
+  "BROWSING_SUCCESS_RATE",
+  "BROWSING_SITES_COUNT",
+  "STREAMING_SCORE",
+  "STREAMING_GRADE",
+  "STREAMING_STARTUP_TIME",
+  "STREAMING_BUFFERING_COUNT",
+  "STREAMING_BUFFERING_DURATION",
+  "STREAMING_REBUFFERING_RATIO",
+  "STREAMING_THROUGHPUT_MBPS",
+  "STREAMING_HIGHEST_QUALITY"
 ];
 
 function csvField(value) {

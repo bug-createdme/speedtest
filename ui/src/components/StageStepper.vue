@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from "vue";
+import { computed, watch, nextTick } from "vue";
 import { STAGE } from "../state/test.js";
 import { useI18n } from "../i18n/index.js";
 
@@ -11,30 +11,17 @@ const props = defineProps({
 
 const { t } = useI18n();
 
-/*
-  Order follows settings.json test_order "IP_D_U": ping first, then download,
-  then upload. Ping moved ahead of the transfers when the Resource Timing bug
-  was fixed - a full run overflows the timing buffer, so a ping measured
-  afterwards was reading a stale entry.
-*/
-/*
-  Only the stages this run will actually perform.
-
-  Web and video are skipped when no URL is configured for them, and a stepper
-  that shows a step nothing will ever reach reads as a run that got stuck.
-  `available` comes from the parent, which knows the settings.
-*/
 const steps = computed(() =>
   [
     { key: STAGE.PING, label: t("stage.ping") },
-    { key: STAGE.BROWSE, label: t("stage.browse") },
     { key: STAGE.DOWNLOAD, label: t("stage.download") },
     { key: STAGE.UPLOAD, label: t("stage.upload") },
+    { key: STAGE.BROWSE, label: t("stage.browse") },
     { key: STAGE.VIDEO, label: t("stage.video") }
   ].filter((step) => props.available.includes(step.key))
 );
 
-const ORDER = [STAGE.PING, STAGE.BROWSE, STAGE.DOWNLOAD, STAGE.UPLOAD, STAGE.VIDEO];
+const ORDER = [STAGE.PING, STAGE.DOWNLOAD, STAGE.UPLOAD, STAGE.BROWSE, STAGE.VIDEO];
 
 function stateOf(key) {
   if (props.stage === key) return "active";
@@ -44,6 +31,19 @@ function stateOf(key) {
   if (current > -1 && mine < current) return "done";
   return "pending";
 }
+
+watch(
+  () => props.stage,
+  async () => {
+    await nextTick();
+    if (typeof document !== "undefined") {
+      const activeEl = document.querySelector(".step-active");
+      if (activeEl && activeEl.scrollIntoView) {
+        activeEl.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+      }
+    }
+  }
+);
 </script>
 
 <template>
@@ -55,11 +55,6 @@ function stateOf(key) {
       :class="'step-' + stateOf(step.key)"
       :aria-current="stateOf(step.key) === 'active' ? 'step' : undefined"
     >
-      <!--
-        A tick for finished stages, a dot for the rest. State was carried by
-        colour alone before, which is exactly the distinction a red-green
-        colour-blind user cannot make on a small dot.
-      -->
       <svg
         v-if="stateOf(step.key) === 'done'"
         class="step-icon"
@@ -86,32 +81,37 @@ function stateOf(key) {
 .stepper {
   display: flex;
   align-items: stretch;
-  gap: var(--sp-1);
+  gap: 3px;
   list-style: none;
   margin: 0;
-  padding: var(--sp-1);
+  padding: 3px;
   border-radius: var(--radius-pill);
   background: var(--surface);
   width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.stepper::-webkit-scrollbar {
+  display: none;
 }
 
 .step {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--sp-2);
-  min-height: 2rem;
-  padding: 0 var(--sp-2);
+  gap: 4px;
+  min-height: 1.85rem;
+  padding: 0 5px;
   border-radius: var(--radius-pill);
-  font-size: var(--fs-sm);
+  font-size: 0.76rem;
   font-weight: var(--fw-medium);
   color: var(--text-muted);
-  /* Colour only. Transitioning `background` too fades the flat fallback colour
-     out over 220ms while the gradient on top of it vanishes on the first
-     frame, so a step that has just finished spends a fifth of a second as a
-     washed-out orange slab. */
   transition: color var(--dur-base) var(--ease-out);
+  white-space: nowrap;
 }
 
 .step-label {
@@ -121,8 +121,8 @@ function stateOf(key) {
 }
 
 .step-dot {
-  width: 0.45rem;
-  height: 0.45rem;
+  width: 0.35rem;
+  height: 0.35rem;
   border-radius: var(--radius-pill);
   background: currentColor;
   opacity: 0.6;
@@ -130,8 +130,8 @@ function stateOf(key) {
 }
 
 .step-icon {
-  width: 0.9rem;
-  height: 0.9rem;
+  width: 0.75rem;
+  height: 0.75rem;
   flex: none;
 }
 
@@ -140,6 +140,7 @@ function stateOf(key) {
   background-color: var(--brand-primary);
   color: var(--brand-on-primary);
   font-weight: var(--fw-bold);
+  flex-shrink: 0;
 }
 
 .step-done {

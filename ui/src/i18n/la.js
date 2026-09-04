@@ -191,7 +191,34 @@ export default {
   "metric.video": "ວິດີໂອ",
   "browse.result": "{bytes} KB ໃນ {time} ms",
   "browse.skipped": "ຍັງບໍ່ໄດ້ຕັ້ງຄ່າ",
+  "browse.averageLoadTime": "ເວລາໂຫຼດສະເລ່ຍ",
+  "browse.successRate": "ອັດຕາການໂຫຼດສຳເລັດ",
+  "browse.viewDetails": "ລາຍລະອຽດເວັບໄຊທີ່ທົດສອບ ({count})",
   "video.timeToPlay": "ເວລາເລີ່ມຫຼິ້ນ",
+  "video.startupTime": "ເວລາເລີ່ມຫຼິ້ນ",
   "video.rebuffering": "ການຢຸດພາບ",
-  "video.quality": "ຄຸນນະພາບ"
+  "video.bufferingCount": "ຈຳນວນຄັ້ງການລໍຖ້າ",
+  "video.stalls": "ຄັ້ງ",
+  "video.throughput": "ຄວາມໄວສົ່ງວິດີໂອ",
+  "video.highestQuality": "ຄຸນນະພາບສູງສຸດທີ່ລ່ຽນໄຫຼ",
+  "video.quality": "ຄຸນນະພາບ",
+
+  "unit.s": "s",
+
+  "status.calculatingQoE": "ກຳລັງຄິດໄລ່ຄະແນນຄຸນນະພາບປະສົບການ (QoE)",
+  "status.calculating": "ກຳລັງປະເມີນ",
+
+  "grade.excellent": "ດີຫຼາຍ",
+  "grade.good": "ດີ",
+  "grade.average": "ປານກາງ",
+  "grade.poor": "ອ່ອນ",
+  "grade.veryPoor": "ອ່ອນຫຼາຍ",
+
+  "qoe.overallTitle": "ຄຸນນະພາບເຄືອຂ່າຍໂດຍລວມ (QoE)",
+  "qoe.score": "ຄະແນນປະສົບການເຄືອຂ່າຍ",
+  "qoe.gradeDesc.excellent": "ປະສົບການອິນເຕີເນັດລ່ຽນໄຫຼຫຼາຍ. ເໝາະສຳລັບການເບິ່ງວິດີໂອ 4K, ຫຼິ້ນເກມອອນລາຍ, ໂທວິດີໂອ HD ແລະ ທ່ອງເວັບໄດ້ທັນທີ.",
+  "qoe.gradeDesc.good": "ປະສົບການເຄືອຂ່າຍດີ. ເບິ່ງວິດີໂອ HD ໄດ້ລ່ຽນໄຫຼ ແລະ ເຂົ້າເວັບໄຊໄດ້ໄວ.",
+  "qoe.gradeDesc.average": "ຄຸນນະພາບປານກາງ. ເບິ່ງວິດີໂອ ແລະ ທ່ອງເວັບໄດ້ທົ່ວໄປ ແຕ່ເນື້ອຫາໃຫຍ່ອາດມີການລໍຖ້າເລັກນ້ອຍ.",
+  "qoe.gradeDesc.poor": "ການເຊື່ອມຕໍ່ຊ້າ. ໜ້າເວັບໃຊ້ເວລາໂຫຼດດົນ ແລະ ວິດີໂອມັກຈະຢຸດເພື່ອໂຫຼດຂໍ້ມູນ.",
+  "qoe.gradeDesc.veryPoor": "ການເຊື່ອມຕໍ່ອ່ອນຫຼາຍ. ເວລາຕອບສະໜອງຊ້າຫຼາຍ ແລະ ຂາດຕອນເລື້ອຍໆ."
 };
