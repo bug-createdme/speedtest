@@ -582,7 +582,11 @@ export const RECORD_FIELDS = [
   "STREAMING_BUFFERING_DURATION",
   "STREAMING_REBUFFERING_RATIO",
   "STREAMING_THROUGHPUT_MBPS",
-  "STREAMING_HIGHEST_QUALITY"
+  "STREAMING_HIGHEST_QUALITY",
+  /* Appended, not inserted: the note above is about not moving columns a
+     parser already depends on. */
+  "STREAMING_PERFORMANCE_RATE",
+  "STREAMING_DATA_USED_BYTES"
 ];
 
 function csvField(value) {

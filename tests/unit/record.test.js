@@ -564,6 +564,39 @@ describe("qoe fields", () => {
   });
 });
 
+describe("RECORD_FIELDS covers the record", () => {
+  /*
+    The column order is declared by hand so that adding a field cannot reorder
+    a file someone already parses. The cost is that a field added to the record
+    and not to the list is measured, stored, and then silently absent from
+    every export - which is what happened to STREAMING_PERFORMANCE_RATE and
+    STREAMING_DATA_USED_BYTES: both were on screen and neither reached the
+    spreadsheet.
+  */
+  /*
+    Held out on purpose. IPV6 is a placeholder the record always writes as
+    null, so exporting it would add a permanently empty column; the underscore
+    keys are our own envelope rather than measurement data. Named here so that
+    leaving a field out stays a decision someone made, and any OTHER new field
+    fails this test.
+  */
+  const NOT_EXPORTED = ["IPV6"];
+
+  it("exports every field the record builds", () => {
+    const record = buildRecord({ test: fullRun() });
+    const missing = Object.keys(record).filter(
+      (f) => !f.startsWith("_") && !NOT_EXPORTED.includes(f) && !RECORD_FIELDS.includes(f)
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it("declares no column the record does not build", () => {
+    const record = buildRecord({ test: fullRun() });
+    const extra = RECORD_FIELDS.filter((f) => !(f in record));
+    expect(extra).toEqual([]);
+  });
+});
+
 describe("csv export", () => {
   it("writes one column per declared field, in declared order", () => {
     const csv = recordsToCsv([buildRecord({ test: fullRun() })]);
