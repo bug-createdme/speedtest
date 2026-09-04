@@ -14,9 +14,13 @@
  *
  * A page cannot always be framed: X-Frame-Options / CSP frame-ancestors let a
  * site refuse, and there is no frame at all when the test runs headless (unit
- * tests, or before the testing screen has mounted). Those fall back to the
- * network probe - fetch, then no-cors fetch, then an image probe - which
- * measures reachability and response time without rendering anything.
+ * tests, or before the testing screen has mounted). Those are measured by
+ * network probe instead - fetch, then no-cors fetch, then an image probe -
+ * which gives reachability and response time without rendering anything.
+ *
+ * Which sites those are is declared per site with `render: false`, not
+ * detected. See the note above DEFAULT_BROWSING_SITES for why detection is not
+ * available, and what it costs to guess.
  *
  * Metrics collected per site:
  *   - Total Load / Response Time (ms)
@@ -74,6 +78,24 @@ const BLANK_DOC_GRACE_MS = 60;
 */
 const RENDER_VIEWPORT_WIDTH = 1024;
 
+/*
+  Whether a site can be shown is configuration, not something to detect.
+
+  A site that refuses to be framed (X-Frame-Options, CSP frame-ancestors) is
+  indistinguishable from one that rendered: after the navigation commits, both
+  give contentDocument === null and throw SecurityError on everything else. The
+  browser withholds the difference on purpose - telling the two apart would leak
+  cross-origin state - so there is nothing cleverer available here.
+
+  Guessing therefore means calling a refusal a fast successful load, which is
+  the worst of the two errors: unitel.com.la refuses, and was scoring a perfect
+  100 on a 0.2s "page load" that was really the refusal arriving.
+
+  So `render: false` marks the sites that cannot be shown. They are still
+  measured, by network probe, and the screen says which measurement it is
+  rather than showing an empty white frame. Verify a new site by framing it and
+  looking, not by trusting the page's own report.
+*/
 export const DEFAULT_BROWSING_SITES = [
   {
     id: "unitel_portal",
@@ -81,40 +103,41 @@ export const DEFAULT_BROWSING_SITES = [
     url: "https://unitel.com.la/",
     fallbackUrl: "browse-sample.html",
     enabled: true,
-    timeout: DEFAULT_BROWSING_TIMEOUT_MS,
-    weight: 1
-  },
-  {
-    id: "national_portal",
-    name: "Lao National Portal",
-    url: "https://laogov.gov.la/",
-    fallbackUrl: "browse-sample.html",
-    enabled: true,
-    timeout: DEFAULT_BROWSING_TIMEOUT_MS,
-    weight: 1
-  },
-  {
-    id: "search_engine",
-    name: "Web Search (Google)",
-    url: "https://www.google.com/generate_204",
-    fallbackUrl: "browse-sample.html",
-    enabled: true,
+    render: false,
     timeout: DEFAULT_BROWSING_TIMEOUT_MS,
     weight: 1
   },
   {
     id: "news_media",
-    name: "News & Information",
-    url: "https://laopdr.news/",
+    name: "Vientiane Times",
+    url: "https://vientianetimes.org.la/",
     fallbackUrl: "browse-sample.html",
     enabled: true,
     timeout: DEFAULT_BROWSING_TIMEOUT_MS,
     weight: 1
   },
   {
-    id: "cdn_cloud",
-    name: "CDN & Cloud Edge",
-    url: "https://cdnjs.cloudflare.com/ajax/libs/vue/3.5.4/vue.global.prod.min.js",
+    id: "lao_wikipedia",
+    name: "Lao Wikipedia",
+    url: "https://lo.wikipedia.org/wiki/%E0%BB%9C%E0%BB%89%E0%BA%B2%E0%BA%AB%E0%BA%BC%E0%BA%B1%E0%BA%81",
+    fallbackUrl: "browse-sample.html",
+    enabled: true,
+    timeout: DEFAULT_BROWSING_TIMEOUT_MS,
+    weight: 1
+  },
+  {
+    id: "news_agency",
+    name: "Lao News Agency (KPL)",
+    url: "https://kpl.gov.la/",
+    fallbackUrl: "browse-sample.html",
+    enabled: true,
+    timeout: DEFAULT_BROWSING_TIMEOUT_MS,
+    weight: 1
+  },
+  {
+    id: "banking",
+    name: "BCEL",
+    url: "https://www.bcel.com.la/",
     fallbackUrl: "browse-sample.html",
     enabled: true,
     timeout: DEFAULT_BROWSING_TIMEOUT_MS,
@@ -215,25 +238,20 @@ function cacheBust(url) {
   return `${url}${sep}_t=${Date.now()}`;
 }
 
-function isCrossOrigin(url) {
-  try {
-    if (typeof location === "undefined" || !location.href) return true;
-    return new URL(url, location.href).origin !== location.origin;
-  } catch (e) {
-    return true;
-  }
+function clearRenderContainer() {
+  if (typeof document === "undefined") return;
+  const container = document.getElementById(BROWSE_CONTAINER_ID);
+  if (container) container.innerHTML = "";
 }
 
 /*
-  Is the frame still showing a document of our own rather than the page?
+  Is the frame still on the empty document it was created with?
 
-  Reading contentDocument across origins throws, so a readable blank document
-  means one of two things: the initial about:blank before the navigation
-  commits, or a navigation the site refused with X-Frame-Options /
-  frame-ancestors, which leaves the frame exactly where it was. Which of the
-  two it is comes from the clock - see BLANK_DOC_GRACE_MS.
+  Only ever true before the navigation commits. Once it has, the document is
+  cross-origin and unreadable, so this returns false whatever happened - see
+  the note on `render` about why that is not something we can improve on.
 */
-function isBlankDocument(frame) {
+function isOwnBlankDocument(frame) {
   try {
     const doc = frame.contentDocument;
     if (!doc) return false;
@@ -241,7 +259,6 @@ function isBlankDocument(frame) {
     if (href && href !== "about:blank") return false;
     return true;
   } catch (e) {
-    // Cross-origin, which means the page under test actually loaded.
     return false;
   }
 }
@@ -342,34 +359,29 @@ function renderSite(target, url, timeoutMs, signal, onTick) {
     }
 
     function onLoad() {
-      const elapsed = now() - startMark;
-      if (isBlankDocument(frame)) {
-        // Too early to be anything but the frame's own initial document.
-        if (elapsed < BLANK_DOC_GRACE_MS) return;
-        // Late and still ours: the site refused to be framed.
-        return done({ rendered: false, refused: isCrossOrigin(url), timedOut: false });
-      }
-      done({ rendered: true, refused: false, timedOut: false });
+      // The frame's own initial document, fired as it was inserted.
+      if (now() - startMark < BLANK_DOC_GRACE_MS && isOwnBlankDocument(frame)) return;
+      done({ rendered: true, timedOut: false });
     }
 
     function onError() {
-      done({ rendered: false, refused: false, timedOut: false, failed: true });
+      done({ rendered: false, timedOut: false, failed: true });
     }
 
     function onAbort() {
-      done({ rendered: false, refused: false, timedOut: false, aborted: true });
+      done({ rendered: false, timedOut: false, aborted: true });
     }
 
     frame.addEventListener("load", onLoad);
     frame.addEventListener("error", onError);
     if (signal) {
       if (signal.aborted) {
-        return done({ rendered: false, refused: false, timedOut: false, aborted: true });
+        return done({ rendered: false, timedOut: false, aborted: true });
       }
       signal.addEventListener("abort", onAbort, { once: true });
     }
 
-    timer = setTimeout(() => done({ rendered: false, refused: false, timedOut: true }), timeoutMs);
+    timer = setTimeout(() => done({ rendered: false, timedOut: true }), timeoutMs);
     if (onTick) {
       ticker = setInterval(() => {
         const elapsed = now() - startMark;
@@ -516,8 +528,10 @@ async function testSingleSite(target, signal, options = {}) {
   const url = cacheBust(target.url);
   const identity = { id: target.id, name: target.name, url: target.url };
 
-  const render =
-    options.render === false ? null : await renderSite(target, url, timeoutMs, signal, onTick);
+  const wantsRender = options.render !== false && target.render !== false;
+  if (!wantsRender) clearRenderContainer();
+
+  const render = wantsRender ? await renderSite(target, url, timeoutMs, signal, onTick) : null;
 
   if (render && render.aborted) {
     return {
@@ -589,13 +603,12 @@ async function testSingleSite(target, signal, options = {}) {
     };
   }
 
-  // No frame available, or the site refused to be framed: measure the network.
+  // Not framed at all, or the frame errored: measure the network instead.
   const probe = await probeSingleSite(url, timeoutMs, signal);
   return {
     ...identity,
     ...probe,
     rendered: false,
-    refused: !!(render && render.refused),
     source: "probe",
     rating: probe.success ? loadTimeRating(probe.loadTimeMs) : 0
   };
@@ -686,10 +699,13 @@ export async function runBrowsingTest(options = {}) {
         targetConfig.url = options.serverUrl.replace(/\/+$/, "") + targetConfig.url;
       }
 
+      const currentRenders = options.render !== false && target.render !== false;
+
       emit(i, {
         currentSite: target.name,
         currentUrl: targetConfig.url,
         currentStatus: "Connecting",
+        currentRenders,
         phase: "loading",
         sitePercent: 0,
         siteElapsedMs: 0,
@@ -704,6 +720,7 @@ export async function runBrowsingTest(options = {}) {
             currentSite: target.name,
             currentUrl: targetConfig.url,
             currentStatus: "Loading",
+            currentRenders,
             phase: "loading",
             sitePercent: Math.round(fraction * 100),
             siteElapsedMs: elapsedMs,
@@ -726,6 +743,7 @@ export async function runBrowsingTest(options = {}) {
         currentSite: target.name,
         currentUrl: targetConfig.url,
         currentStatus: settledStatus,
+        currentRenders,
         phase: "dwell",
         sitePercent: 100,
         siteElapsedMs: siteResult.loadTimeMs,
@@ -743,6 +761,7 @@ export async function runBrowsingTest(options = {}) {
             currentSite: target.name,
             currentUrl: targetConfig.url,
             currentStatus: settledStatus,
+            currentRenders,
             phase: "dwell",
             sitePercent: 100,
             siteElapsedMs: siteResult.loadTimeMs,

@@ -87,6 +87,9 @@ const browseRows = computed(() => {
       /* Reached, but no verdict yet - the row that is loading right now. */
       active: index === test.browsingCurrentIndex && !result,
       pending: index > test.browsingCurrentIndex,
+      /* Response time rather than page load: a different measurement, so it is
+         marked rather than left to look like the others. */
+      probed: !!result && result.source === "probe" && result.success,
       time: result
         ? result.success
           ? (result.loadTimeMs / 1000).toFixed(2) + t("unit.s")
@@ -96,6 +99,9 @@ const browseRows = computed(() => {
     };
   });
 });
+
+/* Any row measured by probe needs the footnote explaining what its time is. */
+const hasProbedRows = computed(() => browseRows.value.some((r) => r.probed));
 
 /* Elapsed on the page on screen right now, not the run average. */
 const currentSiteSeconds = computed(() =>
@@ -205,8 +211,20 @@ const settled = computed(() =>
             <!--
               The page itself. browsing.js puts the iframe in here and times it
               to its load event, so what is on screen is what was measured.
+              The note is a sibling, not a child: browsing.js clears the
+              container, and would wipe anything Vue rendered inside it.
             -->
-            <div id="browse-testing-container" class="browser-viewport"></div>
+            <div class="browser-stage">
+              <div id="browse-testing-container" class="browser-viewport"></div>
+              <div v-if="!test.browsingCurrentRenders" class="browser-noframe">
+                <svg class="noframe-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <rect x="3" y="4" width="18" height="16" rx="2"/>
+                  <path d="M3 9h18M4 20L20 4"/>
+                </svg>
+                <p class="noframe-title">{{ t("browse.noFrame") }}</p>
+                <p class="noframe-hint">{{ t("browse.noFrameHint") }}</p>
+              </div>
+            </div>
 
             <div class="browser-caption">
               <span class="caption-name">{{ test.browsingCurrentSite || t('status.measuringBrowse') }}</span>
@@ -236,10 +254,11 @@ const settled = computed(() =>
               <span class="ledger-col-url" :title="row.url">{{ row.url }}</span>
               <span class="ledger-col-time">
                 <span v-if="row.active" class="ledger-spinner" aria-hidden="true"></span>
-                <template v-else>{{ row.time }}</template>
+                <template v-else>{{ row.time }}<span v-if="row.probed" class="ledger-mark">*</span></template>
               </span>
               <span class="ledger-col-rate">{{ row.rating }}</span>
             </div>
+            <p v-if="hasProbedRows" class="ledger-note">{{ t("browse.responseNote") }}</p>
           </div>
         </div>
 
@@ -552,12 +571,51 @@ const settled = computed(() =>
   White, because that is what an empty page looks like; a dark box behind a
   loading page reads as a broken one.
 */
-.browser-viewport {
+.browser-stage {
   position: relative;
   width: 100%;
   height: 300px;
+}
+
+.browser-viewport {
+  position: absolute;
+  inset: 0;
   background: #fff;
   overflow: hidden;
+}
+
+/* A site that refuses to be framed would otherwise be an empty white box that
+   reads as a broken page. */
+.browser-noframe {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: var(--sp-4);
+  text-align: center;
+  background: var(--surface-raised, #18191d);
+}
+
+.noframe-icon {
+  width: 30px;
+  height: 30px;
+  color: var(--text-muted, #727682);
+}
+
+.noframe-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-secondary, #a0a4b0);
+}
+
+.noframe-hint {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--text-muted, #727682);
 }
 
 /* Sizing and the fit-to-panel scale are set inline by browsing.js, which is
@@ -672,6 +730,21 @@ const settled = computed(() =>
 .ledger-head .ledger-col-rate {
   font-family: inherit;
   color: inherit;
+}
+
+.ledger-mark {
+  color: var(--brand-primary, #ff7a00);
+  font-weight: 700;
+  padding-left: 1px;
+}
+
+.ledger-note {
+  margin: 0;
+  padding: 5px 10px 7px;
+  border-top: 1px solid var(--border, #262830);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--text-muted, #727682);
 }
 
 .ledger-spinner {

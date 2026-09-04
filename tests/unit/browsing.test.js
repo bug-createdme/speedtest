@@ -115,6 +115,30 @@ describe("Browsing Service", () => {
       expect(result.sites.length).toBe(1);
     });
 
+    it("probes a site marked render:false and says that is what it did", async () => {
+      const targets = [
+        { id: "framed", name: "Framed", url: "https://site1.la" },
+        { id: "no_frame", name: "No frame", url: "https://site2.la", render: false }
+      ];
+
+      const seen = [];
+      const result = await runBrowsingTest({
+        sites: targets,
+        dwellMs: 0,
+        onProgress: (info) => {
+          if (info.phase === "loading" && info.currentSite) {
+            seen.push([info.currentSite, info.currentRenders]);
+          }
+        }
+      });
+
+      expect(result.sites.map((s) => s.source)).toEqual(["probe", "probe"]);
+      // Headless, so neither is framed - but only the second says so up front,
+      // which is what the screen needs to explain the empty panel.
+      expect(seen.find((s) => s[0] === "No frame")[1]).toBe(false);
+      expect(seen.find((s) => s[0] === "Framed")[1]).toBe(true);
+    });
+
     it("rates each site as well as the run", async () => {
       const targets = [{ id: "site_1", name: "Site 1", url: "https://site1.la" }];
       const result = await runBrowsingTest({ sites: targets, dwellMs: 0 });

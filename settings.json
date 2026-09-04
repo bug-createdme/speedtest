@@ -21,6 +21,7 @@
       "url": "https://unitel.com.la/",
       "fallbackUrl": "https://unitel.com.la/",
       "enabled": true,
+      "render": false,
       "timeout": 15000,
       "weight": 1
     },
@@ -43,19 +44,19 @@
       "weight": 1
     },
     {
-      "id": "cdn_edge",
-      "name": "Cloud Edge CDN",
-      "url": "https://cdnjs.cloudflare.com/ajax/libs/vue/3.5.4/vue.global.prod.min.js",
-      "fallbackUrl": "https://unitel.com.la/",
+      "id": "news_agency",
+      "name": "Lao News Agency (KPL)",
+      "url": "https://kpl.gov.la/",
+      "fallbackUrl": "https://vientianetimes.org.la/",
       "enabled": true,
       "timeout": 15000,
       "weight": 1
     },
     {
-      "id": "search_engine",
-      "name": "Web Search (Google)",
-      "url": "https://www.google.la/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png",
-      "fallbackUrl": "https://unitel.com.la/",
+      "id": "banking",
+      "name": "BCEL",
+      "url": "https://www.bcel.com.la/",
+      "fallbackUrl": "https://vientianetimes.org.la/",
       "enabled": true,
       "timeout": 15000,
       "weight": 1
@@ -90,9 +91,9 @@
   ],
   "qoe_weights": {
     "download": 0.25,
-    "upload": 0.10,
+    "upload": 0.1,
     "latency": 0.15,
-    "browsing": 0.20,
-    "streaming": 0.30
+    "browsing": 0.2,
+    "streaming": 0.3
   }
 }

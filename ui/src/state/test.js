@@ -179,6 +179,9 @@ export const test = reactive({
   browsingCurrentIndex: -1,
   browsingCurrentPercent: 0,
   browsingCurrentElapsedMs: 0,
+  /* False for a site that refuses to be framed: measured by probe, and the
+     screen says so rather than showing an empty frame. */
+  browsingCurrentRenders: true,
   browsingPhase: "",
 
   /* Video Streaming QoE */
@@ -399,6 +402,7 @@ function resetRun() {
   test.browsingCurrentIndex = -1;
   test.browsingCurrentPercent = 0;
   test.browsingCurrentElapsedMs = 0;
+  test.browsingCurrentRenders = true;
   test.browsingPhase = "";
   test.streamingResult = null;
   test.streamingCurrentQuality = "";
@@ -813,6 +817,7 @@ async function runBrowsingStage() {
         test.browsingCurrentIndex = Number.isInteger(info.currentIndex) ? info.currentIndex : -1;
         test.browsingCurrentPercent = info.sitePercent || 0;
         test.browsingCurrentElapsedMs = info.siteElapsedMs || 0;
+        test.browsingCurrentRenders = info.currentRenders !== false;
         test.browsingPhase = info.phase || "";
       }
     });
